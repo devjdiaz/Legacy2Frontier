@@ -120,8 +120,9 @@ class Actuator:
             else:
                 changed, frame = await self.screen.wait_for_change(before, timeout=1.5)
                 if not changed:  # ya estaba vacío: lo que se lee suele ser texto de ayuda (placeholder)
-                    return Outcome("sin cambio visible: el campo ya estaba vacío (el texto que se ve ahí es de ayuda). "
-                                   "No lo vuelvas a vaciar.", False, frame)
+                    return Outcome("vaciado NO verificado: la pantalla no cambió. Puede que ya estuviera vacío (y lo que "
+                                   "se ve sea texto de ayuda) o que el campo no sea editable. Mira la captura antes de repetir.",
+                                   False, frame)
                 return Outcome("campo vaciado", True, frame)
         return Outcome(f"NO se pudo verificar lo escrito (cerca del punto se lee «{seen}»; se esperaba «{text}»). "
                        "Revisa la captura: si el texto está bien en el campo, continúa; no lo vuelvas a escribir a ciegas.", True, frame)
@@ -151,7 +152,7 @@ class Actuator:
             await self.screen.click(x, y)
             await self.screen.wait_for_change(before, timeout=2.0)
             await self.screen.type_text(option)
-            await self.screen.press("enter")
+            await self.screen.press("tab")  # Tab confirma la opción sin enviar el formulario (Enter podría enviarlo)
             await self._park_pointer()
             ok, seen, frame = await self._verify_text(x, y, option, timeout=3.0)
         if ok:
