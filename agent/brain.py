@@ -35,9 +35,10 @@ Reglas inquebrantables:
    lista (escribe en el filtro y pulsa el botón de buscar) y lee los resultados. Si ya abriste un formulario
    de alta sin buscar, vuelve a la lista (botón de volver) y busca primero.
 5. Las búsquedas pueden traer coincidencias parciales: compara los nombres EXACTOS (con tildes) contra la tarea.
-6. Para contar, sumar o listar filas usa las herramientas de tabla: llama recolectar_tabla en CADA página
-   (avanzando con el paginador hasta el final) y luego contar/sumar/listar. Son exactas y eliminan filas
-   repetidas entre páginas. Antes de una consulta nueva usa limpiar_tabla.
+6. Para contar, sumar o listar filas: primero usa los filtros de la pantalla para acotar la lista (por
+   ejemplo nombre y estado), luego recolectar_paginas (recorre todas las páginas solo) y después
+   contar/sumar/listar. Son exactas y eliminan filas repetidas entre páginas. Antes de una consulta nueva
+   usa limpiar_tabla.
 7. "Hoy" es la fecha que muestra la aplicación, no tu fecha. Calcula "ayer", "el sábado", etc. desde ahí.
    Escribe las fechas en el formato que pide el campo (mira su texto de ejemplo).
 8. Para escribir en un campo usa escribir (reemplaza su contenido y lo verifica). Para listas desplegables
@@ -76,6 +77,8 @@ TOOLS = [
           {**XY, "cantidad": {"type": "integer"}}, ["x", "y", "cantidad"]),
     _tool("esperar", "Espera unos segundos a que la aplicación termine de cargar.", {"segundos": {"type": "number"}}, ["segundos"]),
     _tool("recolectar_tabla", "Lee la tabla visible y acumula sus filas (sin repetidas).", {}, []),
+    _tool("recolectar_paginas", "Lee la tabla y avanza con el paginador hasta la última página, acumulando todas "
+          "las filas sin repetidas. Úsala en vez de paginar a mano.", {}, []),
     _tool("contar", "Cuenta las filas acumuladas que cumplen los filtros (comparación exacta).", FILTERS, []),
     _tool("sumar", "Suma una columna numérica de las filas acumuladas que cumplen los filtros.",
           {"columna": {"type": "string"}, **FILTERS}, ["columna"]),
@@ -88,6 +91,15 @@ TOOLS = [
     }, ["estado", "resumen"]),
 ]
 TERMINAR_ONLY = {"type": "function", "function": {"name": "terminar"}}
+
+# Vocabulario genérico de paginadores (no es de ninguna app en particular).
+NEXT_LABELS = {"siguiente", "siguiente >", "siguiente »", "sig.", "sig", "next", "next >", ">", ">>", "»", "›"}
+
+
+def find_next_control(obs: Observation):
+    """El control de «página siguiente» más bajo de la pantalla, si existe."""
+    found = [b for b in obs.boxes if norm(b.text).lower() in NEXT_LABELS or norm(b.text).lower().startswith(("siguiente", "next"))]
+    return max(found, key=lambda b: b.cy) if found else None
 
 
 @dataclass
@@ -194,6 +206,7 @@ class Agent:
         self.vetoes = 0
         self.vetoes_seen = 0
         self.strong_left = 0
+        self.recent: list[tuple[str, str]] = []
 
     def _remaining(self) -> float:
         return self.deadline - asyncio.get_running_loop().time()
@@ -281,6 +294,14 @@ class Agent:
             else:
                 self.model = FAST_MODEL
             tool, args = await self._decide(task, obs, warnings, force_finish=force)
+            signature = (tool, json.dumps({k: v for k, v in args.items() if k != "razon"}, sort_keys=True, ensure_ascii=False))
+            self.recent.append(signature)
+            if len(self.recent) >= 3 and len(set(self.recent[-3:])) == 1 and tool != "terminar":
+                self.no_change_streak += 2  # bucle: escala al modelo fuerte
+                self._log(tool, args, "BUCLE: repetiste exactamente la misma acción 3 veces con el mismo resultado. "
+                                      "Cambia de estrategia o termina con lo que ya verificaste.")
+                self.recent.clear()
+                continue
             if tool == "terminar":
                 estado = args.get("estado", "fallida")
                 respuesta = [str(v) for v in (args.get("respuesta") or [])]
@@ -341,6 +362,8 @@ class Agent:
                 out = await self.act.wait(float(args.get("segundos", 2)))
                 self._log(tool, args, out.summary)
                 return out
+            if tool == "recolectar_paginas":
+                return await self._collect_pages(args, obs)
             if tool == "recolectar_tabla":
                 table = parse_table(obs)
                 if not table:
@@ -371,11 +394,32 @@ class Agent:
                 self.table = Collected()
                 self._log(tool, args, "tabla vaciada")
                 return None
-            self._log(tool, args, f"herramienta desconocida «{tool}»")
+            self.no_change_streak += 1  # inventar herramientas es señal de atasco: ayuda a escalar
+            valid = ", ".join(t["function"]["name"] for t in TOOLS)
+            self._log(tool, args, f"«{tool}» NO existe. Herramientas válidas: {valid}. "
+                                  "Para botones (incluido el paginador) usa clic con el id del texto.")
             return None
         except (KeyError, ValueError, TypeError) as exc:
             self._log(tool, args, f"argumentos inválidos: {type(exc).__name__}")
             return None
+
+    async def _collect_pages(self, args: dict, obs: Observation) -> Outcome | None:
+        pages, new_total, last = 0, 0, None
+        while pages < 40 and self._remaining() > 35:
+            table = parse_table(obs)
+            if table:
+                new_total += self.table.add(table.headers, table.rows)
+            pages += 1
+            nxt = find_next_control(obs)
+            if nxt is None:
+                break
+            last = await self.act.click(nxt.cx, nxt.cy)
+            if not last.changed:
+                break  # paginador deshabilitado: última página
+            obs = await observe(last.frame, prev=obs)
+        self._log("recolectar_paginas", args, f"{pages} páginas leídas, {new_total} filas nuevas; total acumulado "
+                                              f"{len(self.table.rows)} filas únicas (columnas: {', '.join(self.table.headers)})")
+        return last
 
     async def _allowed(self, task: str, obs: Observation, label: str, reason: str) -> bool:
         verdict = await self.policy.gate_effect(label, reason, self._history(), obs.plain_text())

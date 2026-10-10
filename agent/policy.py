@@ -96,8 +96,10 @@ class Policy:
         done = [e for e in self.effects if _norm(e.label) == norm]
         if any(e.confirmed for e in done):
             return Verdict(False, f"Ya pulsaste «{label}» y la pantalla cambió. No lo repitas: verifica el resultado en pantalla.")
-        if len(done) >= 2:
-            return Verdict(False, f"«{label}» ya se intentó dos veces. Verifica el estado en vez de repetir.")
+        if done:  # a lo sumo una vez: sin confirmación visual puede haberse aplicado igual (p. ej. exportar)
+            return Verdict(False, f"Ya pulsaste «{label}» (sin cambio visible). Puede haberse aplicado sin confirmación "
+                                  "visual: NO lo repitas. Verifica por otra vía si existe (un listado o historial) o "
+                                  "termina explicando lo observado.")
         state = (f"Tarea: {self.task}\nAcción propuesta: pulsar «{label}». Motivo del agente: {reason}\n"
                  f"Acciones previas:\n{history}\nPantalla actual (texto):\n{screen_text[:8000]}")
         res = await self.decider.ask(state, {

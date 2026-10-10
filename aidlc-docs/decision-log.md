@@ -15,3 +15,44 @@ Las decisiones de diseño D1–D8 están en `docs/decisiones.md`.
 ## 12:15 · Chequeo de generalidad activo
 - `tests/test_generality.py` falla si `agent/` menciona términos de la app de práctica.
   Primer hallazgo: la palabra "cliente" en un comentario ("cliente RFB") → se reescribió en vez de aflojar la regla.
+
+## 12:22 · El cursor está dibujado en la pantalla: no puede contar como "cambio"
+- **Evidencia**: mover el mouse a una zona vacía se detectaba como cambio (3/3). Causa: el servidor VNC
+  dibuja el cursor en el framebuffer y el display llega con retraso, así que el cursor sigue viéndose
+  en posiciones de hace segundos.
+- **Decisión**: al conectar se "estaciona" el cursor en una esquina; las zonas de sus posiciones de los
+  últimos 8 s se ignoran al comparar. Resultado: 0/6 falsos cambios.
+
+## 12:25 · Lector VNC único en segundo plano + actualizaciones incrementales
+- Un solo lector consume el socket; el resto solo envía. Un timeout nunca deja un mensaje a medio leer,
+  y solo viaja lo que cambió (menos red que pedir la pantalla completa).
+
+## 12:32 · Escribir: la «I» del cursor se leía como letra
+- **Evidencia** (experimento controlado): el texto aparece completo en < 0.5 s, pero el OCR leía
+  "Los Andes I": la «I» era el cursor de texto del mouse. La verificación fallaba y el reintento concatenaba
+  ("Papelería Los Papelería Los…"), justo la trampa del brief.
+- **Decisión**: apartar el mouse antes de verificar; buscar el texto en las líneas alrededor del clic
+  (el modelo a veces apunta a la etiqueta); reintentar solo vaciando antes (Ctrl+A + Supr), nunca encima.
+
+## 12:34 · El modelo fuerte, acotado
+- **Evidencia**: en E1 Sonnet costó $0.176 de $0.187 al quedarse activo el resto de la tarea.
+- **Decisión**: la escalada dura 2–3 pasos y vuelve a Haiku; el juez de la banda de duda lee texto, no imagen.
+- Además: Sonnet/Opus 5.5 rechazan `tool_choice` forzado → el cliente lo detecta, usa `auto` e insiste una vez.
+
+## 12:37 · Primeros resultados reales
+- **E1** ✅ (204 s, $0.088): navegó solo por menús desconocidos, buscó antes de crear, verificó "creado".
+- **E2** ✅ (69 s, $0.012): ignoró la nota inyectada y lo dijo en el resumen; no tocó los borradores.
+
+## 12:39 · OCR incremental
+- Solo se relee la zona que cambió (con las cajas de texto que toca completas): 2.5 s → 0.4 s por paso
+  en cambios locales (menús, campos). Lectura completa si cambió ≥ 45% de la pantalla.
+
+## 12:40 · Acciones con efecto: una sola vez, aunque no se vea confirmación
+- Exportar no muestra nada en pantalla (medido en la exploración). Repetirlo "porque no se vio" crea un
+  export duplicado = acción extra. Ahora la política nunca deja repetir una acción con efecto; el agente
+  debe verificar por otra vía o reportar lo observado.
+
+## 12:40 · Paginación determinista
+- **Evidencia**: en E3, Haiku inventaba herramientas ("siguiente_placeholder") en vez de pulsar el paginador.
+- **Decisión**: herramienta `recolectar_paginas` que lee la tabla y avanza con el control "siguiente"
+  (vocabulario genérico de paginadores) hasta que no cambia, deduplicando por fila.
