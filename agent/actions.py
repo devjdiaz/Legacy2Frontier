@@ -107,6 +107,9 @@ class Actuator:
             await self.screen.wait_for_change(before, timeout=2.0)
             await self._park_pointer()
             await self.screen.press("ctrl+a")  # escribir sobre una selección la reemplaza
+            if not text:  # base después del clic: el foco del campo no cuenta como "vaciado"
+                await asyncio.sleep(0.3)
+                before = self.screen.frame.copy()
             if attempt > 0 or not text:
                 await self.screen.press("delete")
             if text:
@@ -115,7 +118,10 @@ class Actuator:
                 if ok:
                     return Outcome(f"escrito y verificado: «{seen}»", True, frame)
             else:
-                _, frame = await self.screen.wait_for_change(before, timeout=3.0)
+                changed, frame = await self.screen.wait_for_change(before, timeout=1.5)
+                if not changed:  # ya estaba vacío: lo que se lee suele ser texto de ayuda (placeholder)
+                    return Outcome("sin cambio visible: el campo ya estaba vacío (el texto que se ve ahí es de ayuda). "
+                                   "No lo vuelvas a vaciar.", False, frame)
                 return Outcome("campo vaciado", True, frame)
         return Outcome(f"NO se pudo verificar lo escrito (cerca del punto se lee «{seen}»; se esperaba «{text}»). "
                        "Revisa la captura: si el texto está bien en el campo, continúa; no lo vuelvas a escribir a ciegas.", True, frame)

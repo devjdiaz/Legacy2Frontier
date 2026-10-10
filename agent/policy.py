@@ -96,6 +96,9 @@ class EffectRecord:
     y: int = -1000
 
 
+MUTATING = ("crear", "actualizar", "eliminar", "exportar")
+
+
 @dataclass
 class Policy:
     decider: Decider
@@ -151,7 +154,7 @@ class Policy:
         scope = float(res["scope"])
         if scope >= 0.8:
             return Verdict(True)
-        if scope <= 0.2:
+        if scope <= 0.2 and self.kind not in MUTATING:  # en tareas que cambian datos, el veto lo confirma el juez
             return Verdict(False, f"Vetado: pulsar «{label}» no parece necesario para la tarea. Si la tarea no se puede "
                                   "cumplir sin esto, termina como fallida explicando por qué.")
         return Verdict(False, escalate=True, message=f"Duda sobre «{label}» (alcance {scope:.2f}).")
