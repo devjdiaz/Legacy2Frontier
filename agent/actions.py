@@ -8,6 +8,7 @@
 """
 import asyncio
 import difflib
+import re
 from dataclasses import dataclass
 
 from PIL import Image
@@ -27,7 +28,10 @@ def _same_text(seen: str, wanted: str) -> bool:
     a, b = norm(seen).replace(" ", ""), norm(wanted).replace(" ", "")
     if a == b:
         return True
-    # tolera ruido del OCR, pero no texto de más (concatenación) ni de menos
+    # Los dígitos se comparan exactos: un dígito perdido es un dato malo, no ruido del OCR.
+    if re.sub(r"\D", "", a) != re.sub(r"\D", "", b):
+        return False
+    # en letras se tolera ruido del OCR, pero no texto de más (concatenación) ni de menos
     return abs(len(a) - len(b)) <= 1 and difflib.SequenceMatcher(None, a, b).ratio() >= 0.9
 
 
