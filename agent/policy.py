@@ -21,6 +21,8 @@ EFFECT_WORDS = (
     "aprobar", "rechazar", "generar", "imprimir", "facturar", "pagar", "cerrar caja", "si", "sí",
     "ok", "save", "delete", "remove", "export", "download", "submit", "confirm", "apply", "create",
     "update", "yes", "accept", "approve", "print", "generate",
+    "revertir", "deshacer", "restaurar", "reabrir", "agendar", "asignar", "reasignar", "archivar", "activar",
+    "desactivar", "bloquear", "autorizar", "cobrar", "abonar", "cancelar", "revert", "undo", "restore",
 )
 SAFE_EXACT = {"cancelar", "cancel", "volver", "atrás", "atras", "cerrar", "close", "no"}
 

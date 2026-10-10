@@ -99,3 +99,11 @@ def test_no_se_repite_una_accion_con_efecto_aunque_el_ocr_la_lea_distinto():
     assert policy.previous_effect("Buscar", 400, 130) is None
     verdict = asyncio.run(policy.gate_effect("Expertar", "reintentar", "", "", 56, 166))
     assert not verdict.allow
+
+
+def test_revertir_y_cancelar_algo_tienen_efecto_pero_cancelar_solo_no():
+    assert is_effectful("Revertir")
+    assert is_effectful("Deshacer cambio")
+    assert is_effectful("Cancelar cita")
+    assert not is_effectful("Cancelar")
+    assert not is_effectful("Siguiente")
