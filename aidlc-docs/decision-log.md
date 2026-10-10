@@ -70,3 +70,12 @@ Las decisiones de diseño D1–D8 están en `docs/decisiones.md`.
 ## 13:10 · Política: "Exportar" leído como "Expcrtar" permitía exportar 3 veces
 - Las palabras con efecto se reconocen con tolerancia a una letra cambiada y cualquier clic en el mismo lugar que
   una acción con efecto previa cuenta como repetición (`tests/test_deterministic.py`).
+
+## 13:20 · En la nube cada paso tardaba ~60 s: el OCR creaba 48 hilos para 2 CPUs
+- **Síntoma**: desplegado en Railway, E3 se quedó sin tiempo y E5 falló (0/2), mientras local daba 5/5.
+- **Evidencia**: en los logs, ~60 s entre llamadas al modelo (local ~5 s); métricas con la CPU en el límite
+  (pico 2.5 vCPU, cuota 2.0). La config de ONNX Runtime usaba `intra_op_num_threads: -1` ("todos los núcleos").
+- **Causa** (confirmada con `/diag`): el contenedor ve 48 CPUs del servidor físico pero su cuota es de 2;
+  48 hilos compitiendo por 2 CPUs.
+- **Decisión**: los hilos del OCR = CPUs de la cuota del cgroup (v2 `cpu.max` / v1 `cfs_quota`), no las visibles.
+  `/diag` (con token) mide CPUs y OCR en el entorno real. Resultado: OCR de pantalla completa 1.12 s en la nube.
