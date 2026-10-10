@@ -23,6 +23,18 @@ legacy que nunca vio, **viendo solo píxeles por VNC** y respondiendo con clics 
 
 Todas las llamadas a `/tasks` requieren `Authorization: Bearer <AGENT_TOKEN>`.
 
+## Resultados
+
+| Prueba | Resultado |
+| --- | --- |
+| Batería oficial E1–E5, app original (v3.9), local y en la nube | 5/5 |
+| Misma batería tras el incidente (v4.2), **sin adaptar** | 3/5 (cerró el modal y halló los controles nuevos; fallaron crear y editar) |
+| Misma batería sobre v4.2 **con el arreglo genérico** | **5/5** · $0.25 las cinco tareas |
+| Pruebas automáticas (`pytest tests`) | 40 pasan |
+
+Costo típico: 3–6 centavos de dólar por tarea. El detalle de cada decisión y del incidente está en
+[`aidlc-docs/decision-log.md`](aidlc-docs/decision-log.md).
+
 ## Correr local
 
 ```bash

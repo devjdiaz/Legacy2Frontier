@@ -79,3 +79,41 @@ Las decisiones de diseño D1–D8 están en `docs/decisiones.md`.
   48 hilos compitiendo por 2 CPUs.
 - **Decisión**: los hilos del OCR = CPUs de la cuota del cgroup (v2 `cpu.max` / v1 `cfs_quota`), no las visibles.
   `/diag` (con token) mide CPUs y OCR en el entorno real. Resultado: OCR de pantalla completa 1.12 s en la nube.
+
+## 14:10 · Set oculto (corrida 1): tres causas genéricas de fallo
+- **Evidencia**: tareas de 230 s / 36 pasos con hasta 13 pasos de "vaciar" un campo que ya estaba vacío; un
+  "Crear cita" vetado en una tarea que decía "agéndaselo"; códigos de otro registro (pago, autorización) buscados
+  como si fueran el documento del paciente; "Aplicar" vetado 15 veces sin motivo.
+- **Causas**: (1) vaciar no verificaba si la pantalla cambió y el detector de bucles solo veía 3 repeticiones
+  seguidas; (2) el juez de segunda opinión respondía con 120 tokens y se cortaba antes del motivo → veto mudo;
+  (3) el prompt no decía cómo seguir referencias entre registros.
+- **Decisión**: "vaciado NO verificado" cuando nada cambia; bucle = misma acción sobre la misma pantalla 3 veces en
+  6 pasos; juez con 400 tokens, motivo legible y comparación EXACTA de códigos/números (tolerancia de OCR solo en
+  nombres); en tareas que cambian datos, un "no es necesario" lo confirma el juez; regla 12 del prompt. E2 bajó de
+  209 s / $0.29 a 74 s / $0.012. Una revisión externa (otro modelo) encontró que el reintento de `seleccionar`
+  pulsaba Enter sin política: ahora confirma con Tab.
+
+## 15:45 · El contenedor moría con dos tareas a la vez
+- **Evidencia**: en los logs de Railway `Killed` → `Started server process`, y el evaluador recibiendo 404 por su
+  tarea. Coincidió con una prueba nuestra contra la nube mientras corría una tarea del set oculto.
+- **Causa**: dos agentes con OCR en paralelo superan 1 GB de memoria.
+- **Decisión**: `TaskManager` atiende una tarea a la vez (`MAX_CONCURRENT_TASKS`, 1 por defecto); las demás esperan
+  y la espera cuenta dentro del corte de 270 s.
+
+## 15:50 · Un "Revertir" se aplicó sin revisión
+- La lista de verbos con efecto no incluía revertir/deshacer/agendar/cancelar-algo… Se agregaron (verbos genéricos
+  de interfaces) con prueba; "Cancelar" a secas sigue siendo seguro.
+
+## 16:00 · Incidente FR-0153: la app cambió a v4.2
+- **Qué cambió**: tema, botones movidos a la derecha, etiquetas nuevas ("Nuevo cliente" → "Crear cliente",
+  "Guardar" → "Aplicar", "Buscar" → "Filtrar"), formularios que se aplican sin cerrarse y un modal "Novedades".
+- **Sin tocar nada: 3/5.** Cerró el modal y encontró los controles nuevos (no hay coordenadas ni nombres fijos).
+  Fallaron crear (E1) y editar (E2).
+- **Causas**: (E1) "Crear cliente" contiene el verbo crear → la política lo trató como un guardado y, tras cerrar
+  el formulario una vez, no dejaba reabrirlo. (E2) el OCR lee "El Fard" por "El Faro" con la fuente nueva y la
+  herramienta le mostraba esa lectura al modelo, que creyó haber escrito mal.
+- **Decisión (genérica)**: un clic "con efecto" que hace aparecer un botón de confirmar que antes no estaba solo
+  abrió un formulario y no cuenta como acción hecha (`policy.opened_commit_step`, con prueba que además garantiza
+  que "Aplicar" y volver a la lista SÍ cuenta). Lo escrito y verificado se reporta como se tecleó, marcando la
+  lectura distinta como ruido del OCR.
+- **Resultado**: 5/5 sobre v4.2 ($0.25 las cinco tareas), desplegado 16:18.
