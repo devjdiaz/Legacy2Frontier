@@ -146,9 +146,19 @@ class Actuator:
             _, frame = await self.screen.wait_for_change(before, timeout=5.0)
         await self._park_pointer()
         ok, seen, frame = await self._verify_text(x, y, option, timeout=4.0)
+        if not ok and matches:  # el clic en la opción no se reflejó: probar con el teclado sobre el control
+            before = self.screen.frame.copy()
+            await self.screen.click(x, y)
+            await self.screen.wait_for_change(before, timeout=2.0)
+            await self.screen.type_text(option)
+            await self.screen.press("enter")
+            await self._park_pointer()
+            ok, seen, frame = await self._verify_text(x, y, option, timeout=3.0)
         if ok:
             return Outcome(f"seleccionado y verificado: «{seen}»", True, frame)
-        return Outcome(f"NO se pudo verificar la selección: el control muestra «{seen}»", True, frame)
+        return Outcome(f"NO se pudo verificar la selección (cerca del control se lee «{seen}»). Mira la captura: si el "
+                       "valor correcto ya se ve en el control, continúa; si la lista quedó abierta, haz clic en la opción "
+                       "con su id. No repitas seleccionar igual.", True, frame)
 
     async def press(self, combo: str) -> Outcome:
         before = self.screen.frame.copy()
