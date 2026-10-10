@@ -31,9 +31,11 @@ Reglas inquebrantables:
    permite distinguirlos), imposible (lo solicitado no existe) o peligrosa (borrados masivos, cambios que nadie
    pidió explícitamente), NO actúes: termina con estado "fallida" y explica nombrando los datos concretos que
    lo demuestran (por ejemplo, el identificador y el documento de cada registro que coincide).
-4. Antes de crear un registro, busca si ya existe para no duplicarlo: usa los filtros de búsqueda de la
-   lista (escribe en el filtro y pulsa el botón de buscar) y lee los resultados. Si ya abriste un formulario
-   de alta sin buscar, vuelve a la lista (botón de volver) y busca primero.
+4. Antes de crear un registro, busca UNA vez si ya existe para no duplicarlo: usa los filtros de búsqueda de
+   la lista (escribe en el filtro y pulsa el botón de buscar) y lee los resultados. Si la búsqueda no devuelve
+   filas, NO existe: continúa con la tarea sin volver a buscar. Si ya abriste un formulario de alta sin buscar,
+   vuelve a la lista (botón de volver) y busca primero.
+   Si pulsar un botón no cambia la pantalla, puede que el resultado sea igual al anterior: no lo repitas.
 5. Las búsquedas pueden traer coincidencias parciales: compara los nombres EXACTOS (con tildes) contra la tarea.
 6. Para contar, sumar o listar filas: primero usa los filtros de la pantalla para acotar la lista (por
    ejemplo nombre y estado), luego recolectar_paginas (recorre todas las páginas solo) y después
@@ -193,7 +195,8 @@ class Step:
 
 
 class Agent:
-    def __init__(self, llm: LLM, policy: Policy, actuator: Actuator, deadline: float, trace=None):
+    def __init__(self, llm: LLM, policy: Policy, actuator: Actuator, deadline: float, trace=None, memory_hint: str = ""):
+        self.memory_hint = memory_hint
         self.llm = llm
         self.policy = policy
         self.act = actuator
@@ -224,6 +227,8 @@ class Agent:
         parts = [f"TAREA: {task}", f"Paso {len(self.steps) + 1} · quedan ~{int(self._remaining())} s"]
         if self.policy.kind != "otro":
             parts.append(f"Tipo de tarea detectado: {self.policy.kind}")
+        if self.memory_hint:
+            parts.append(self.memory_hint)
         parts.append("Historial:\n" + self._history())
         if self.table.rows:
             parts.append(f"Tabla acumulada: {len(self.table.rows)} filas únicas · columnas: {', '.join(self.table.headers)}")
@@ -272,7 +277,8 @@ class Agent:
             self.trace(step)
 
     async def solve(self, task: str) -> tuple[str, str]:
-        await self.policy.classify()
+        if self.policy.kind == "otro":
+            await self.policy.classify()
         obs = await observe(self.act.screen.frame.copy())
         while True:
             remaining = self._remaining()
@@ -328,7 +334,8 @@ class Agent:
                     x, y = int(args["x"]), int(args["y"])
                     label = label_at(obs, x, y)
                 else:
-                    self._log(tool, args, "falta objetivo o x,y")
+                    self._log(tool, args, f"el id {args.get('objetivo')} no existe en la pantalla actual: usa un id del "
+                                          "texto OCR actual o coordenadas x, y")
                     return None
                 effectful = is_effectful(label)
                 if effectful and not await self._allowed(task, obs, label, str(args.get("razon", ""))):
@@ -413,7 +420,7 @@ class Agent:
             nxt = find_next_control(obs)
             if nxt is None:
                 break
-            last = await self.act.click(nxt.cx, nxt.cy)
+            last = await self.act.click(nxt.cx, nxt.cy, timeout=4.0)
             if not last.changed:
                 break  # paginador deshabilitado: última página
             obs = await observe(last.frame, prev=obs)

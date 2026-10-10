@@ -61,3 +61,23 @@ def test_tabla_real_se_reconoce_sin_conocer_la_app():
     assert table is not None and len(table.headers) == 6 and len(table.rows) == 20
     codes = [r[0] for r in table.rows]
     assert codes[0] == "FV-10047" and len(set(codes)) == 20
+
+
+def test_memoria_guarda_estructura_y_nunca_datos():
+    from types import SimpleNamespace as S
+
+    from agent.memory import fingerprint, outline
+
+    task = "Cambia el teléfono de Distribuciones del Valle a 3001112233."
+    steps = [
+        S(tool="clic", args={}, result="clic en «Comercial»: la pantalla cambió"),
+        S(tool="escribir", args={"x": 97, "y": 131, "texto": "Distribuciones del Valle"}, result="ok"),
+        S(tool="clic", args={}, result="clic en «AB-0042»: la pantalla cambió"),
+        S(tool="clic", args={}, result="clic en «Distribuciones del Valle»: la pantalla cambió"),
+        S(tool="escribir", args={"x": 688, "y": 202, "texto": "3001112233"}, result="ok"),
+        S(tool="clic", args={}, result="clic en «Guardar»: la pantalla cambió"),
+    ]
+    out = outline(steps, task)
+    assert "Comercial" in out and "Guardar" in out
+    assert "AB-0042" not in out and "Distribuciones del Valle" not in out and "3001112233" not in out
+    assert fingerprint("MiApp · Empresa X v3.9 Hoy: 14/10/2026 · Usuario: op2") == fingerprint("MiApp · Empresa X v4.1 Hoy: 01/01/2027 · Usuario: op7")

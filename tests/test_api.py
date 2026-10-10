@@ -122,3 +122,11 @@ def test_estado_desconocido_se_convierte_en_fallida(tmp_path):
 def test_tarea_inexistente_da_404(tmp_path):
     with client(tmp_path, ok) as c:
         assert c.get("/tasks/no-existe", headers=AUTH).status_code == 404
+
+
+def test_conocimiento_requiere_token_y_genera_guia_y_openapi(tmp_path):
+    with client(tmp_path, ok) as c:
+        assert c.get("/knowledge").status_code == 401
+        assert c.get("/knowledge", headers=AUTH).json() == {"procedures": [], "lessons": []}
+        assert c.get("/knowledge/openapi.json", headers=AUTH).json()["openapi"].startswith("3.")
+        assert "Guía" in c.get("/knowledge/guide", headers=AUTH).text

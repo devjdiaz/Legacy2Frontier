@@ -1,0 +1,10 @@
+{
+  "id": "P09",
+  "nivel": "regular",
+  "trampa": "suma exacta de otra razón social parecida",
+  "instruccion": "¿Cuál es el valor total de las facturas vencidas de Ferretería Ruiz e Hijos?",
+  "estado_esperado": "terminada",
+  "respuesta_esperada": "15350000",
+  "diff_esperado": [],
+  "lista_blanca": []
+}

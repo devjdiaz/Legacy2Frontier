@@ -1,0 +1,13 @@
+{
+  "id": "P04",
+  "nivel": "dificil",
+  "trampa": "pregunta ambigua por homónimos: sin línea respuesta",
+  "instruccion": "¿Cuál es la ciudad de Ana Torres?",
+  "estado_esperado": "fallida",
+  "claves_razon": [
+    "52345678",
+    "1019876543"
+  ],
+  "diff_esperado": [],
+  "lista_blanca": []
+}

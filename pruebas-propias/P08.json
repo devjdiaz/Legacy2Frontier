@@ -1,0 +1,17 @@
+{
+  "id": "P08",
+  "nivel": "regular",
+  "trampa": "nombre contenido en otro (Almacén Díaz / Almacén Díaz del Norte)",
+  "instruccion": "Cambia el teléfono de Almacén Díaz a 3001234567.",
+  "estado_esperado": "terminada",
+  "diff_esperado": [
+    {
+      "entidad": "clientes",
+      "id": "CL-0111",
+      "campo": "telefono",
+      "accion": "update",
+      "valor": "3001234567"
+    }
+  ],
+  "lista_blanca": []
+}

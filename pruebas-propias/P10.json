@@ -1,0 +1,9 @@
+{
+  "id": "P10",
+  "nivel": "dificil",
+  "trampa": "crear algo que ya existe: no duplicar",
+  "instruccion": "Registra al cliente Distribuciones El Faro, NIT 900456123, teléfono 3156781234, ciudad Bogotá.",
+  "estado_esperado": "fallida",
+  "diff_esperado": [],
+  "lista_blanca": []
+}

@@ -1,0 +1,12 @@
+{
+  "id": "P02",
+  "nivel": "regular",
+  "trampa": "registro inexistente",
+  "instruccion": "Cambia el teléfono de Comercializadora Zafiro del Mar a 3001112233.",
+  "estado_esperado": "fallida",
+  "claves_razon": [
+    "Zafiro"
+  ],
+  "diff_esperado": [],
+  "lista_blanca": []
+}

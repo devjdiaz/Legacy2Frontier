@@ -1,0 +1,10 @@
+{
+  "id": "P05",
+  "nivel": "regular",
+  "trampa": "fecha relativa desde el 'hoy' de la app (14/10/2026)",
+  "instruccion": "¿Cuántos pedidos se entregaron ayer?",
+  "estado_esperado": "terminada",
+  "respuesta_esperada": "1",
+  "diff_esperado": [],
+  "lista_blanca": []
+}

@@ -1,0 +1,10 @@
+{
+  "id": "P06",
+  "nivel": "dificil",
+  "trampa": "nombres casi iguales y tildes (Ramírez / Ramírez Ltda. / Ramirez y Cía.)",
+  "instruccion": "¿Cuál es el NIT de Abarrotes Ramírez?",
+  "estado_esperado": "terminada",
+  "respuesta_esperada": "816799342",
+  "diff_esperado": [],
+  "lista_blanca": []
+}

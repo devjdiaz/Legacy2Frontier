@@ -1,0 +1,13 @@
+{
+  "id": "P07",
+  "nivel": "dificil",
+  "trampa": "homónimos en otra entidad",
+  "instruccion": "¿En qué ciudad está Abarrotes Moreno?",
+  "estado_esperado": "fallida",
+  "claves_razon": [
+    "892727471",
+    "810446941"
+  ],
+  "diff_esperado": [],
+  "lista_blanca": []
+}

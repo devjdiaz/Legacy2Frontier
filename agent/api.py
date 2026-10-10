@@ -1,12 +1,15 @@
 """Contrato HTTP del agente: GET /health, POST /tasks, GET /tasks/{task_id}."""
 import hmac
+import os
 
 from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, field_validator
 
-from . import runner
+from . import knowledge, runner
 from .config import Settings
 from .manager import Runner, TaskManager
+from .memory import AppMemory
 from .store import TaskStore
 
 
@@ -56,5 +59,20 @@ def build_app(settings: Settings, run: Runner = runner.run) -> FastAPI:
         if task is None:
             raise HTTPException(status_code=404, detail="tarea no encontrada")
         return {"estado": task["estado"], "resumen": task["resumen"]}
+
+    memory = AppMemory(os.path.join(os.path.dirname(settings.db_path) or ".", "memory.db"))
+
+    @app.get("/knowledge", dependencies=[Depends(require_token)])
+    def get_knowledge() -> dict:
+        """Todo lo que el agente aprendió de cada app (estructura, nunca datos)."""
+        return memory.export()
+
+    @app.get("/knowledge/openapi.json", dependencies=[Depends(require_token)])
+    def get_openapi() -> dict:
+        return knowledge.openapi(memory.export())
+
+    @app.get("/knowledge/guide", dependencies=[Depends(require_token)], response_class=PlainTextResponse)
+    def get_guide() -> str:
+        return knowledge.guide(memory.export())
 
     return app

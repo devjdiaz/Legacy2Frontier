@@ -1,0 +1,10 @@
+{
+  "id": "P01",
+  "nivel": "regular",
+  "trampa": "pregunta doble, orden de los datos",
+  "instruccion": "¿Cuál es el teléfono y la ciudad de Distribuciones El Faro?",
+  "estado_esperado": "terminada",
+  "respuesta_esperada": "3156781234; Bogotá",
+  "diff_esperado": [],
+  "lista_blanca": []
+}

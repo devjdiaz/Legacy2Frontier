@@ -53,15 +53,15 @@ class Actuator:
     def __init__(self, screen: Screen):
         self.screen = screen
 
-    async def click(self, x: int, y: int, double: bool = False, effectful: bool = False) -> Outcome:
+    async def click(self, x: int, y: int, double: bool = False, effectful: bool = False, timeout: float | None = None) -> Outcome:
         before = self.screen.frame.copy()
         await self.screen.click(x, y, double=double)
-        changed, frame = await self.screen.wait_for_change(before, timeout=9.0 if effectful else 6.0)
+        changed, frame = await self.screen.wait_for_change(before, timeout=timeout or (9.0 if effectful else 6.0))
         if not changed and effectful:
             await asyncio.sleep(2.0)
             frame = await self.screen.capture()
             changed = self.screen.differs(frame, before)
-        summary = "la pantalla cambió" if changed else "NO se vio ningún cambio en la pantalla"
+        summary = "la pantalla cambió" if changed else "NO se vio ningún cambio (si era una búsqueda, el resultado puede ser el mismo)"
         return Outcome(summary, changed, frame)
 
     async def _park_pointer(self) -> None:
