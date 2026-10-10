@@ -52,10 +52,30 @@ async def reset(http: httpx.AsyncClient) -> None:
     await asyncio.sleep(6)  # el navegador del escritorio se reinicia
 
 
+async def remote(http: httpx.AsyncClient, url: str, token: str, tarea: str):
+    """Igual que el evaluador: POST /tasks (< 2 s) y GET /tasks/{id} cada 5 s, hasta 5 minutos."""
+    auth = {"Authorization": f"Bearer {token}"}
+    t0 = time.time()
+    r = await http.post(f"{url}/tasks", headers=auth, timeout=10,
+                        json={"tarea": tarea, "escritorio": {"url": WSS, "password": PASSWORD}})
+    post_s = time.time() - t0
+    r.raise_for_status()
+    task_id = r.json()["task_id"]
+    while time.time() - t0 < 300:
+        await asyncio.sleep(5)
+        st = (await http.get(f"{url}/tasks/{task_id}", headers=auth, timeout=10)).json()
+        if st["estado"] != "en_curso":
+            print(f"     (POST respondió en {post_s:.2f} s)")
+            return st["estado"], st["resumen"], None
+    return "fallida", "el servicio no terminó en 5 minutos", None
+
+
 async def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("cases", nargs="*")
     ap.add_argument("--dir", default="pruebas")
+    ap.add_argument("--url", help="probar el servicio desplegado por HTTP, como el evaluador (POST /tasks + polling)")
+    ap.add_argument("--token", default=os.environ.get("AGENT_TOKEN") or TOKEN)
     args = ap.parse_args()
     files = sorted(glob.glob(os.path.join(args.dir, "*.json")))
     if args.cases:
@@ -67,7 +87,10 @@ async def main() -> None:
             await reset(http)
             t0 = time.time()
             try:
-                estado, resumen, stats = await asyncio.wait_for(run_with_stats(case["instruccion"], WSS, PASSWORD), 280)
+                if args.url:
+                    estado, resumen, stats = await remote(http, args.url, args.token, case["instruccion"])
+                else:
+                    estado, resumen, stats = await asyncio.wait_for(run_with_stats(case["instruccion"], WSS, PASSWORD), 280)
             except Exception as exc:
                 estado, resumen, stats = "fallida", f"ERROR {type(exc).__name__}: {exc}", None
             check = (await http.post(f"{BASE}/__check", headers=HEADERS, json=case, timeout=60)).json()

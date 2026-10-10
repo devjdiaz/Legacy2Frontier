@@ -81,7 +81,9 @@ async def run_with_stats(tarea: str, url: str, password: str) -> tuple[str, str,
             app = fingerprint(" ".join(b.text for b in first.lines[0]) if first.lines else "")
             await policy.classify()
             memory = AppMemory(os.path.join(os.path.dirname(settings.db_path) or ".", "memory.db"))
-            hint = memory.recall(app, policy.kind)
+            # Pistas de memoria en el prompt: APAGADAS por defecto. Medido (curva de aprendizaje, 13:08):
+            # con pistas 4/5 y +52% de costo vs 5/5 sin pistas; el modelo confundía la memoria con su historial.
+            hint = memory.recall(app, policy.kind) if os.environ.get("MEMORY_HINTS") == "1" else ""
             stats.app, stats.kind, stats.used_memory = app, policy.kind, bool(hint)
             agent = Agent(llm, policy, Actuator(screen), deadline, trace=trace, memory_hint=hint)
             try:

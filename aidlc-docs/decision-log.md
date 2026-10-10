@@ -56,3 +56,17 @@ Las decisiones de diseño D1–D8 están en `docs/decisiones.md`.
 - **Evidencia**: en E3, Haiku inventaba herramientas ("siguiente_placeholder") en vez de pulsar el paginador.
 - **Decisión**: herramienta `recolectar_paginas` que lee la tabla y avanza con el control "siguiente"
   (vocabulario genérico de paginadores) hasta que no cambia, deduplicando por fila.
+
+## 13:10 · Curva de aprendizaje medida: las pistas de memoria EMPEORAN → se apagan
+- **Evidencia** (`harness.compare`, misma batería E1–E5): sin memoria 5/5 · $0.142 en total; con memoria 4/5 · $0.216
+  (+52%), E2 66 s → 108 s. En E1 el agente creó bien el cliente pero reportó `fallida` desconfiando de "pasos
+  anteriores" que eran de otra tarea: el modelo confundía la memoria con su propio historial. Además los caminos
+  guardados tenían ruido (clics en el título, menús equivocados).
+- **Decisión**: las pistas en el prompt quedan apagadas por defecto (`MEMORY_HINTS=1` para activarlas). La memoria
+  se sigue guardando (alimenta la API y la guía) y ahora descarta pasos sin efecto y no oculta nombres de menú.
+- **Siguiente iteración** (si hay tiempo): solo caminos de navegación mínimos, en el mensaje de sistema y rotulados
+  como notas de otras tareas; volver a medir antes de activarlas.
+
+## 13:10 · Política: "Exportar" leído como "Expcrtar" permitía exportar 3 veces
+- Las palabras con efecto se reconocen con tolerancia a una letra cambiada y cualquier clic en el mismo lugar que
+  una acción con efecto previa cuenta como repetición (`tests/test_deterministic.py`).

@@ -21,6 +21,19 @@ CANCEL_MSG = "La tarea se canceló porque llegó una tarea nueva para el mismo e
 FINAL_STATES = ("terminada", "fallida")
 
 
+def describe_error(exc: Exception) -> str:
+    """Mensaje claro para el resumen, sin detalles internos ni secretos."""
+    name = type(exc).__name__
+    text = str(exc).lower()
+    if name in ("gaierror", "ConnectionRefusedError", "InvalidURI", "InvalidStatus", "InvalidHandshake") or "connect" in text:
+        return "No se pudo conectar al escritorio indicado; no se realizó ninguna acción."
+    if "autenticación vnc" in text:
+        return "El escritorio rechazó la contraseña de VNC; no se realizó ninguna acción."
+    if "se cayó" in text:
+        return "Se perdió la conexión con el escritorio a mitad de la tarea; el resultado no se pudo verificar."
+    return f"Error interno del agente ({name}); la tarea no se pudo verificar."
+
+
 class TaskManager:
     def __init__(self, store: TaskStore, run: Runner, timeout_s: float, extra_secrets: list[str] = ()):
         self._store = store
@@ -51,7 +64,7 @@ class TaskManager:
             raise
         except Exception as exc:  # nunca reportar éxito si algo explotó
             log.exception("tarea %s falló", task_id)
-            estado, resumen = "fallida", f"Error interno del agente ({type(exc).__name__}); la tarea no se pudo verificar."
+            estado, resumen = "fallida", describe_error(exc)
         if estado not in FINAL_STATES:
             estado = "fallida"
         self._store.finish(task_id, estado, redact(resumen, [password, *self._extra_secrets]))

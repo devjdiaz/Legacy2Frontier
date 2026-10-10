@@ -35,7 +35,8 @@ def _scrub(label: str, task: str) -> str:
         return "«?»"
     if re.search(r"[A-Za-z]{1,4}-?\d{2,}", label) or re.fullmatch(r"[\d.,/\s-]+", label):
         return "«<registro>»"
-    if len(label) > 3 and _norm(label) in _norm(task):
+    # un valor de la tarea (nombres de varias palabras, números) se oculta; una palabra suelta de menú no
+    if len(label) > 3 and _norm(label) in _norm(task) and (len(label.split()) >= 2 or re.search(r"\d", label)):
         return "«<valor de la tarea>»"
     return f"«{label}»"
 
@@ -44,6 +45,8 @@ def outline(steps: list, task: str) -> str:
     """Procedimiento genérico a partir de los pasos ejecutados (sin datos)."""
     lines = []
     for s in steps:
+        if "NO se vio" in s.result or s.result.startswith(("BUCLE", "Vetado", "RECHAZADO")):
+            continue  # pasos que no llevaron a nada no se enseñan
         if s.tool == "clic":
             label = re.search(r"clic en «(.*?)»", s.result)
             lines.append(f"clic {_scrub(label.group(1) if label else '', task)}")
