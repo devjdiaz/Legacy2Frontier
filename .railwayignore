@@ -1,0 +1,8 @@
+# Solo se sube lo que el servicio necesita para construir la imagen
+*
+!Dockerfile
+!requirements.txt
+!railway.json
+!agent/
+!agent/**
+agent/**/__pycache__
