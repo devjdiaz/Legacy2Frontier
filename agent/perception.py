@@ -6,6 +6,7 @@ en código. RapidOCR se eligió midiendo: 34/34 textos reales con tildes vs 23/3
 import asyncio
 import hashlib
 import statistics
+import threading
 import unicodedata
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -109,8 +110,12 @@ def _engine():
     })
 
 
+_OCR_LOCK = threading.Lock()  # un OCR a la vez: tareas en paralelo no se pisan ni pelean por las mismas CPUs
+
+
 def _ocr_sync(frame: Image.Image) -> list[TextBox]:
-    res = _engine()(np.array(frame.convert("RGB")))
+    with _OCR_LOCK:
+        res = _engine()(np.array(frame.convert("RGB")))
     boxes = []
     if res.boxes is None:
         return boxes
