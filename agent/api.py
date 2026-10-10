@@ -62,6 +62,25 @@ def build_app(settings: Settings, run: Runner = runner.run) -> FastAPI:
 
     memory = AppMemory(os.path.join(os.path.dirname(settings.db_path) or ".", "memory.db"))
 
+    @app.get("/diag", dependencies=[Depends(require_token)])
+    async def diag() -> dict:
+        """Mide el entorno donde corre el agente (CPU real y velocidad del OCR) en vez de suponerlo."""
+        import time
+
+        from PIL import Image, ImageDraw
+
+        from .perception import _cache, available_cpus, observe
+
+        img = Image.new("RGB", (1280, 800), (240, 242, 245))
+        draw = ImageDraw.Draw(img)
+        for i in range(30):
+            draw.text((20 + (i % 3) * 420, 20 + (i // 3) * 70), f"Fila {i} · Texto de prueba {i * 7919}", fill=(0, 0, 0))
+        _cache.clear()
+        t0 = time.time()
+        obs = await observe(img)
+        return {"cpus_visibles": os.cpu_count(), "cpus_disponibles": available_cpus(),
+                "ocr_pantalla_completa_s": round(time.time() - t0, 2), "cajas": len(obs.boxes)}
+
     @app.get("/knowledge", dependencies=[Depends(require_token)])
     def get_knowledge() -> dict:
         """Todo lo que el agente aprendió de cada app (estructura, nunca datos)."""

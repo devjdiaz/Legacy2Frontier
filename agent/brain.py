@@ -278,7 +278,7 @@ class Agent:
         step = Step(len(self.steps) + 1, tool, args, result, time.time())
         self.steps.append(step)
         if self.trace:
-            self.trace(step)
+            self.trace(step, self.act.screen.frame)
 
     async def solve(self, task: str) -> tuple[str, str]:
         if self.policy.kind == "otro":

@@ -71,11 +71,42 @@ def norm(s: str) -> str:
     return unicodedata.normalize("NFC", " ".join(s.split()))
 
 
+def available_cpus() -> int:
+    """CPUs que el contenedor puede usar de verdad (cuota del cgroup), no las que ve del servidor físico.
+
+    Medido en Railway: el OCR creaba un hilo por cada núcleo visible del host y, con una cuota de 2 vCPU,
+    cada paso tardaba ~60 s en vez de ~5 s.
+    """
+    import os
+
+    if os.environ.get("OCR_THREADS"):
+        return max(1, int(os.environ["OCR_THREADS"]))
+    try:  # cgroup v2: "cuota periodo" o "max periodo"
+        quota, period = open("/sys/fs/cgroup/cpu.max").read().split()[:2]
+        if quota != "max":
+            return max(1, int(int(quota) / int(period)))
+    except (OSError, ValueError):
+        pass
+    try:  # cgroup v1
+        quota = int(open("/sys/fs/cgroup/cpu/cpu.cfs_quota_us").read())
+        period = int(open("/sys/fs/cgroup/cpu/cpu.cfs_period_us").read())
+        if quota > 0:
+            return max(1, quota // period)
+    except (OSError, ValueError):
+        pass
+    return max(1, min(os.cpu_count() or 1, 8))
+
+
 @lru_cache(maxsize=1)
 def _engine():
     from rapidocr import RapidOCR
 
-    return RapidOCR(params={"Global.log_level": "warning"})
+    threads = available_cpus()
+    return RapidOCR(params={
+        "Global.log_level": "warning",
+        "EngineConfig.onnxruntime.intra_op_num_threads": threads,
+        "EngineConfig.onnxruntime.inter_op_num_threads": 1,
+    })
 
 
 def _ocr_sync(frame: Image.Image) -> list[TextBox]:

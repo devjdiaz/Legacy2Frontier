@@ -66,7 +66,14 @@ async def run_with_stats(tarea: str, url: str, password: str) -> tuple[str, str,
     stats.trace_dir = trace_dir
     trace_file = open(os.path.join(trace_dir, "trace.jsonl"), "a", encoding="utf-8")
 
-    def trace(step) -> None:
+    save_frames = os.environ.get("SAVE_FRAMES", "1") == "1"
+
+    def trace(step, frame=None) -> None:
+        if save_frames and frame is not None:  # capturas por paso: para depurar y para el video del demo
+            try:
+                frame.save(os.path.join(trace_dir, f"{step.n:03d}.png"))
+            except Exception:
+                pass
         record = asdict(step)
         record["args"] = {k: (v if k != "texto" else str(v)) for k, v in record["args"].items()}
         trace_file.write(json.dumps(record, ensure_ascii=False) + "\n")
