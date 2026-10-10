@@ -7,6 +7,7 @@
 - No se acepta "terminada" sin evidencia: una tarea de cambio sin acción con efecto, o una pregunta
   sin respuesta, se rechazan; antes de cerrar un cambio se verifica el estado en pantalla.
 """
+import difflib
 import re
 import unicodedata
 from dataclasses import dataclass, field
@@ -46,7 +47,12 @@ def _norm(s: str) -> str:
     return unicodedata.normalize("NFC", " ".join(s.lower().split()))
 
 
+def _similar(a: str, b: str) -> bool:
+    return difflib.SequenceMatcher(None, a, b).ratio() >= 0.8
+
+
 def is_effectful(label: str | None) -> bool:
+    """¿El botón cambia datos? Tolera ruido del OCR («Expcrtar» = «Exportar»)."""
     if not label:
         return False
     text = _norm(label)
@@ -54,7 +60,13 @@ def is_effectful(label: str | None) -> bool:
         return False
     words = re.findall(r"[a-záéíóúñü]+", text)
     joined = " ".join(words)
-    return any((w in words) if " " not in w else (w in joined) for w in EFFECT_WORDS)
+    for effect in EFFECT_WORDS:
+        if " " in effect:
+            if effect in joined:
+                return True
+        elif effect in words or (len(effect) >= 5 and any(len(w) >= 5 and _similar(w, effect) for w in words)):
+            return True
+    return False
 
 
 @dataclass
@@ -69,6 +81,8 @@ class EffectRecord:
     label: str
     step: int
     confirmed: bool
+    x: int = -1000
+    y: int = -1000
 
 
 @dataclass
@@ -91,9 +105,18 @@ class Policy:
             self._warned[digest] = float(res["inj"]) >= 0.8
         return self._warned[digest]
 
-    async def gate_effect(self, label: str, reason: str, history: str, screen_text: str) -> Verdict:
-        norm = _norm(label)
-        done = [e for e in self.effects if _norm(e.label) == norm]
+    def previous_effect(self, label: str | None, x: int, y: int) -> EffectRecord | None:
+        """La misma acción con efecto ya hecha: mismo lugar en pantalla o mismo texto (aunque el OCR varíe)."""
+        for e in self.effects:
+            if abs(e.x - x) <= 25 and abs(e.y - y) <= 15:
+                return e
+            if label and _similar(_norm(e.label), _norm(label)):
+                return e
+        return None
+
+    async def gate_effect(self, label: str, reason: str, history: str, screen_text: str, x: int = -1000, y: int = -1000) -> Verdict:
+        prev = self.previous_effect(label, x, y)
+        done = [prev] if prev else []
         if any(e.confirmed for e in done):
             return Verdict(False, f"Ya pulsaste «{label}» y la pantalla cambió. No lo repitas: verifica el resultado en pantalla.")
         if done:  # a lo sumo una vez: sin confirmación visual puede haberse aplicado igual (p. ej. exportar)
@@ -117,8 +140,8 @@ class Policy:
                                   "cumplir sin esto, termina como fallida explicando por qué.")
         return Verdict(False, escalate=True, message=f"Duda sobre «{label}» (alcance {scope:.2f}).")
 
-    def record_effect(self, label: str, step: int, confirmed: bool) -> None:
-        self.effects.append(EffectRecord(label, step, confirmed))
+    def record_effect(self, label: str, step: int, confirmed: bool, x: int = -1000, y: int = -1000) -> None:
+        self.effects.append(EffectRecord(label, step, confirmed, x, y))
 
     async def gate_finish(self, estado: str, respuesta: list[str], screen_text: str, history: str) -> Verdict:
         if estado != "terminada":

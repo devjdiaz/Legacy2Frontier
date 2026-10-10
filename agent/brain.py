@@ -341,12 +341,13 @@ class Agent:
                     self._log(tool, args, f"el id {args.get('objetivo')} no existe en la pantalla actual: usa un id del "
                                           "texto OCR actual o coordenadas x, y")
                     return None
-                effectful = is_effectful(label)
-                if effectful and not await self._allowed(task, obs, label, str(args.get("razon", ""))):
+                # con efecto si el texto lo dice, o si es el mismo lugar de una acción con efecto anterior
+                effectful = is_effectful(label) or self.policy.previous_effect(label, x, y) is not None
+                if effectful and not await self._allowed(task, obs, label or f"{x},{y}", str(args.get("razon", "")), x, y):
                     return None
                 out = await self.act.click(x, y, double=bool(args.get("doble")), effectful=effectful)
                 if effectful:
-                    self.policy.record_effect(label, len(self.steps) + 1, out.changed)
+                    self.policy.record_effect(label or f"{x},{y}", len(self.steps) + 1, out.changed, x, y)
                 self._log(tool, args, f"clic en «{label or f'{x},{y}'}»: {out.summary}")
                 return out
             if tool == "escribir":
@@ -432,8 +433,8 @@ class Agent:
                                               f"{len(self.table.rows)} filas únicas (columnas: {', '.join(self.table.headers)})")
         return last
 
-    async def _allowed(self, task: str, obs: Observation, label: str, reason: str) -> bool:
-        verdict = await self.policy.gate_effect(label, reason, self._history(), obs.plain_text())
+    async def _allowed(self, task: str, obs: Observation, label: str, reason: str, x: int = -1000, y: int = -1000) -> bool:
+        verdict = await self.policy.gate_effect(label, reason, self._history(), obs.plain_text(), x, y)
         if verdict.escalate:
             allowed, motive = await self._judge(task, obs, label, reason)
             if allowed:

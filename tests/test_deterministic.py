@@ -81,3 +81,20 @@ def test_memoria_guarda_estructura_y_nunca_datos():
     assert "Comercial" in out and "Guardar" in out
     assert "AB-0042" not in out and "Distribuciones del Valle" not in out and "3001112233" not in out
     assert fingerprint("MiApp · Empresa X v3.9 Hoy: 14/10/2026 · Usuario: op2") == fingerprint("MiApp · Empresa X v4.1 Hoy: 01/01/2027 · Usuario: op7")
+
+
+@pytest.mark.parametrize("ocr_noise", ["Expcrtar", "Expertar", "Guardár", "Eliminar"])
+def test_acciones_con_efecto_aunque_el_ocr_cambie_letras(ocr_noise):
+    assert is_effectful(ocr_noise)
+
+
+def test_no_se_repite_una_accion_con_efecto_aunque_el_ocr_la_lea_distinto():
+    from agent.policy import Policy
+
+    policy = Policy(decider=None, task="Exporta el reporte")
+    policy.record_effect("Exportar", 8, True, 55, 166)
+    assert policy.previous_effect("Expcrtar", 300, 300) is not None   # mismo texto con ruido
+    assert policy.previous_effect(None, 57, 167) is not None          # mismo lugar, sin texto
+    assert policy.previous_effect("Buscar", 400, 130) is None
+    verdict = asyncio.run(policy.gate_effect("Expertar", "reintentar", "", "", 56, 166))
+    assert not verdict.allow
