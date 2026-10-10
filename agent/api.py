@@ -62,6 +62,33 @@ def build_app(settings: Settings, run: Runner = runner.run) -> FastAPI:
 
     memory = AppMemory(os.path.join(os.path.dirname(settings.db_path) or ".", "memory.db"))
 
+    @app.get("/traces", dependencies=[Depends(require_token)])
+    def traces(limit: int = 5) -> list[dict]:
+        """Lo que hizo el agente en las últimas tareas, paso a paso y con tiempos (para depurar en la nube)."""
+        import glob
+        import json
+
+        root = os.environ.get("TRACE_DIR", "runs")
+        out = []
+        for d in sorted(glob.glob(os.path.join(root, "2*")), reverse=True)[: max(1, min(limit, 30))]:
+            item: dict = {"traza": os.path.basename(d)}
+            try:
+                item.update(json.load(open(os.path.join(d, "result.json"), encoding="utf-8")))
+            except (OSError, ValueError):
+                item["estado"] = "en_curso"
+            steps = []
+            try:
+                for line in open(os.path.join(d, "trace.jsonl"), encoding="utf-8"):
+                    s = json.loads(line)
+                    steps.append({"n": s["n"], "t": round(s["t"], 1), "tool": s["tool"],
+                                  "args": {k: v for k, v in s["args"].items() if k != "razon"},
+                                  "result": s["result"][:300]})
+            except (OSError, ValueError):
+                pass
+            item["pasos"] = steps
+            out.append(item)
+        return out
+
     @app.get("/diag", dependencies=[Depends(require_token)])
     async def diag() -> dict:
         """Mide el entorno donde corre el agente (CPU real y velocidad del OCR) en vez de suponerlo."""
