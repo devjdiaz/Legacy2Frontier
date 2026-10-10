@@ -93,19 +93,46 @@ def _ocr_sync(frame: Image.Image) -> list[TextBox]:
 _cache: dict[str, list[TextBox]] = {}
 
 
-async def observe(frame: Image.Image) -> Observation:
-    """OCR de la pantalla (en un hilo para no bloquear el servicio), con caché por contenido."""
+async def observe(frame: Image.Image, prev: "Observation | None" = None) -> Observation:
+    """OCR de la pantalla (en un hilo para no bloquear el servicio), con caché por contenido.
+
+    Si hay una observación previa y el cambio es local (un menú, un campo), solo se relee la zona que
+    cambió: la mayoría de los pasos pasan de ~1.8 s de OCR a décimas.
+    """
     digest = hashlib.blake2b(frame.tobytes(), digest_size=16).hexdigest()
     if digest not in _cache:
         if len(_cache) > 64:
             _cache.clear()
-        _cache[digest] = await asyncio.to_thread(_ocr_sync, frame)
+        boxes = await _incremental(frame, prev) if prev is not None else None
+        _cache[digest] = boxes if boxes is not None else await asyncio.to_thread(_ocr_sync, frame)
     boxes = [TextBox(**vars(b)) for b in _cache[digest]]
     lines = group_lines(boxes)
     # ids en orden de lectura: arriba→abajo, izquierda→derecha
     for new_id, b in enumerate(b for line in lines for b in line):
         b.id = new_id
     return Observation(frame=frame, boxes=boxes, digest=digest, lines=lines)
+
+
+async def _incremental(frame: Image.Image, prev: "Observation") -> list[TextBox] | None:
+    from PIL import ImageChops
+
+    bbox = ImageChops.difference(frame, prev.frame).getbbox()
+    if bbox is None:
+        return [TextBox(**vars(b)) for b in prev.boxes]
+    x0, y0, x1, y1 = bbox[0] - 16, bbox[1] - 16, bbox[2] + 16, bbox[3] + 16
+    grown = True
+    while grown:  # la zona incluye completas las cajas de texto que toca
+        grown = False
+        for b in prev.boxes:
+            if b.x1 >= x0 and b.x0 <= x1 and b.y1 >= y0 and b.y0 <= y1:
+                nx0, ny0, nx1, ny1 = min(x0, b.x0 - 4), min(y0, b.y0 - 4), max(x1, b.x1 + 4), max(y1, b.y1 + 4)
+                if (nx0, ny0, nx1, ny1) != (x0, y0, x1, y1):
+                    x0, y0, x1, y1, grown = nx0, ny0, nx1, ny1, True
+    area = max(0, x1 - x0) * max(0, y1 - y0)
+    if area > 0.45 * frame.width * frame.height:
+        return None  # cambió media pantalla o más: lectura completa
+    kept = [TextBox(**vars(b)) for b in prev.boxes if not (b.x1 >= x0 and b.x0 <= x1 and b.y1 >= y0 and b.y0 <= y1)]
+    return kept + await read_region(frame, (x0, y0, x1, y1))
 
 
 def group_lines(boxes: list[TextBox]) -> list[list[TextBox]]:

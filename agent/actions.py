@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 from PIL import Image
 
-from .perception import Observation, TextBox, norm, observe, read_region
+from .perception import Observation, TextBox, group_lines, norm, observe, read_region
 from .vnc import Screen
 
 
@@ -68,48 +68,53 @@ class Actuator:
         """Aparta el mouse: sobre un campo se dibuja como una «I» que el OCR lee como letra."""
         await self.screen.move(self.screen.width - 1, self.screen.height - 1)
 
-    async def _read_field(self, x: int, y: int, wanted: str | None, timeout: float = 5.0) -> tuple[str, Image.Image]:
-        """Lee el campo hasta que muestre lo esperado o se acabe el tiempo (el display llega con retraso)."""
+    async def _verify_text(self, x: int, y: int, wanted: str, timeout: float = 5.0) -> tuple[bool, str, Image.Image]:
+        """¿Se ve `wanted` en el campo junto a (x, y)? El modelo a veces apunta a la etiqueta y no al campo,
+        así que se buscan las líneas alrededor del punto. Reintenta leyendo hasta `timeout` (display lento)."""
         loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout
-        seen, frame = "", self.screen.frame.copy()
+        frame = self.screen.frame.copy()
+        closest = ""
         while True:
             await self.screen.wait_for_change(frame, timeout=0.8, settle=0.3)
             frame = self.screen.frame.copy()
-            boxes = await read_region(frame, (0, y - 18, frame.width, y + 18))
-            seen = _field_text(boxes, x, y)
-            if (wanted is not None and _same_text(seen, wanted)) or (wanted == "" and not seen):
-                return seen, frame
+            boxes = await read_region(frame, (x - 450, y - 30, x + 650, y + 60))
+            lines = group_lines(boxes)
+            for line in lines:
+                for i in range(len(line)):
+                    acc = ""
+                    for j in range(i, len(line)):
+                        acc = f"{acc} {line[j].text}".strip()
+                        if _same_text(acc, wanted):
+                            return True, acc, frame
+            if lines:
+                below = [l for l in lines if l[0].cy >= y - 12] or lines
+                near = min(below, key=lambda l: abs(l[0].cy - y))
+                closest = _field_text(near, x, near[0].cy)
             if loop.time() >= deadline:
-                return seen, frame
+                return False, closest, frame
 
     async def type_into(self, x: int, y: int, text: str) -> Outcome:
         seen = ""
         frame = self.screen.frame.copy()
-        for attempt in range(3):
+        for attempt in range(2):
             before = self.screen.frame.copy()
             await self.screen.click(x, y)
             await self.screen.wait_for_change(before, timeout=2.0)
             await self._park_pointer()
-            if attempt == 0:
-                await self.screen.press("ctrl+a")  # escribir sobre una selección la reemplaza
-            else:  # vaciar y comprobar que quedó vacío antes de volver a escribir (nunca concatenar)
-                await self.screen.press("ctrl+a")
+            await self.screen.press("ctrl+a")  # escribir sobre una selección la reemplaza
+            if attempt > 0 or not text:
                 await self.screen.press("delete")
-                seen, _ = await self._read_field(x, y, "", timeout=3.0)
-                if seen:
-                    await self.screen.press("end")
-                    for _ in range(len(seen) + 8):
-                        await self.screen.press("backspace")
-                    seen, _ = await self._read_field(x, y, "", timeout=3.0)
-                    if seen:
-                        continue
             if text:
                 await self.screen.type_text(text)
-            seen, frame = await self._read_field(x, y, text)
-            if _same_text(seen, text) or (not text and not seen):
-                return Outcome(f"escrito y verificado: «{seen}»", True, frame)
-        return Outcome(f"NO se pudo verificar lo escrito: el campo muestra «{seen}» (se esperaba «{text}»)", True, frame)
+                ok, seen, frame = await self._verify_text(x, y, text)
+                if ok:
+                    return Outcome(f"escrito y verificado: «{seen}»", True, frame)
+            else:
+                _, frame = await self.screen.wait_for_change(before, timeout=3.0)
+                return Outcome("campo vaciado", True, frame)
+        return Outcome(f"NO se pudo verificar lo escrito (cerca del punto se lee «{seen}»; se esperaba «{text}»). "
+                       "Revisa la captura: si el texto está bien en el campo, continúa; no lo vuelvas a escribir a ciegas.", True, frame)
 
     async def select(self, x: int, y: int, option: str) -> Outcome:
         before = self.screen.frame.copy()
@@ -130,8 +135,8 @@ class Actuator:
             await self.screen.press("enter")
             _, frame = await self.screen.wait_for_change(before, timeout=5.0)
         await self._park_pointer()
-        seen, frame = await self._read_field(x, y, option, timeout=4.0)
-        if _same_text(seen, option):
+        ok, seen, frame = await self._verify_text(x, y, option, timeout=4.0)
+        if ok:
             return Outcome(f"seleccionado y verificado: «{seen}»", True, frame)
         return Outcome(f"NO se pudo verificar la selección: el control muestra «{seen}»", True, frame)
 
