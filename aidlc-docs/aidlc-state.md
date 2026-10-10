@@ -18,7 +18,7 @@ AI-DLC adaptado a un hackathon de 8 horas: se ejecutan solo las etapas que agreg
 ## CONSTRUCTION
 | Unidad | Ventana | Hecho cuando | Estado |
 | --- | --- | --- | --- |
-| U0 Esqueleto y despliegue | 12:00–12:45 | El contrato responde desde internet | 🔄 contrato verificado local contra el escritorio real; falta login de Railway |
+| U0 Esqueleto y despliegue | 12:00–12:45 | El contrato responde desde internet | ✅ 13:07 `https://agent-production-7bcb.up.railway.app` (health, 401, 422, 404, POST 0.17 s) |
 | U1 Ver y actuar | 12:45–14:00 | OCR lee la tabla real con tildes; clic y escritura verificados; harness corre | ✅ 34/34 OCR, tablas genéricas, cursor enmascarado, escritura verificada |
 | U2 Pensar y supervisar | 14:00–15:30 | E1–E5 pasan en el harness | ✅ adelantada: E1–E5 pasan (12:44), batería propia P01–P10 escrita |
 | Incidente | 15:30–16:30 | ≥70% en la app nueva; 1ª corrida del set oculto | ⏳ |
