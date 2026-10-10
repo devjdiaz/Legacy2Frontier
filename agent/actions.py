@@ -115,8 +115,9 @@ class Actuator:
             if text:
                 await self.screen.type_text(text)
                 ok, seen, frame = await self._verify_text(x, y, text)
-                if ok:
-                    return Outcome(f"escrito y verificado: «{seen}»", True, frame)
+                if ok:  # se tecleó exactamente `text`; si el OCR lo lee con una letra distinta, es ruido de lectura
+                    noise = "" if norm(seen) == norm(text) else f" (el OCR lo lee «{seen}»: es ruido de lectura, el campo está bien)"
+                    return Outcome(f"escrito y verificado: «{text}»{noise}", True, frame)
             else:
                 changed, frame = await self.screen.wait_for_change(before, timeout=1.5)
                 if not changed:  # ya estaba vacío: lo que se lee suele ser texto de ayuda (placeholder)

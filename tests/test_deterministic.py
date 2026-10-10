@@ -107,3 +107,12 @@ def test_revertir_y_cancelar_algo_tienen_efecto_pero_cancelar_solo_no():
     assert is_effectful("Cancelar cita")
     assert not is_effectful("Cancelar")
     assert not is_effectful("Siguiente")
+
+
+def test_abrir_formulario_no_cuenta_como_cambio_pero_guardar_si():
+    from agent.policy import opened_commit_step
+    lista = ["Clientes", "Exportar", "Crear cliente", "Filtrar"]
+    formulario = ["Crear cliente", "Razón social", "Cerrar", "Aplicar"]
+    assert opened_commit_step(lista, formulario)          # «Crear cliente» solo abrió el formulario
+    assert not opened_commit_step(formulario, lista)      # «Aplicar» y volver a la lista: sí fue el cambio
+    assert not opened_commit_step(formulario, formulario + ["Cambios aplicados"])  # aplicar sin cerrar

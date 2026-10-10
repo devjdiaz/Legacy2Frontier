@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from .actions import Actuator, Outcome, label_at
 from .llm import FAST_MODEL, LLM, STRONG_MODEL, image_part
 from .perception import Observation, norm, observe, parse_table
-from .policy import Policy, is_effectful
+from .policy import Policy, is_effectful, opened_commit_step
 
 log = logging.getLogger(__name__)
 
@@ -359,7 +359,10 @@ class Agent:
                     return None
                 out = await self.act.click(x, y, double=bool(args.get("doble")), effectful=effectful)
                 if effectful:
-                    self.policy.record_effect(label or f"{x},{y}", len(self.steps) + 1, out.changed, x, y)
+                    after = await observe(out.frame, prev=obs) if out.changed else None
+                    # abrir un formulario (aparece su botón de confirmar) no es el cambio: se puede volver a abrir
+                    if after is None or not opened_commit_step([b.text for b in obs.boxes], [b.text for b in after.boxes]):
+                        self.policy.record_effect(label or f"{x},{y}", len(self.steps) + 1, out.changed, x, y)
                 self._log(tool, args, f"clic en «{label or f'{x},{y}'}»: {out.summary}")
                 return out
             if tool == "escribir":

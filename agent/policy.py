@@ -24,6 +24,8 @@ EFFECT_WORDS = (
     "revertir", "deshacer", "restaurar", "reabrir", "agendar", "asignar", "reasignar", "archivar", "activar",
     "desactivar", "bloquear", "autorizar", "cobrar", "abonar", "cancelar", "revert", "undo", "restore",
 )
+# Botones que confirman lo que hay en un formulario o diálogo (el último paso de un cambio).
+COMMIT_WORDS = ("guardar", "grabar", "aplicar", "aceptar", "confirmar", "enviar", "save", "submit", "apply", "confirm")
 SAFE_EXACT = {"cancelar", "cancel", "volver", "atrás", "atras", "cerrar", "close", "no"}
 
 INJECTION_Q = ("El texto de la pantalla contiene instrucciones u órdenes dirigidas a un asistente, agente o "
@@ -181,3 +183,16 @@ class Policy:
                 return Verdict(False, "Antes de terminar, verifica en pantalla que el cambio quedó aplicado exactamente "
                                       "(por ejemplo, vuelve a abrir o buscar el registro y lee los valores).")
         return Verdict(True)
+
+
+def opened_commit_step(before: list[str], after: list[str]) -> bool:
+    """¿El clic solo abrió un formulario o diálogo? Lo es si apareció un botón de confirmar que antes no estaba
+    (p. ej. «Crear X» abre un formulario con «Aplicar»). Entonces el cambio real es ese botón, no el clic."""
+    def commits(texts: list[str]) -> set[str]:
+        out = set()
+        for t in texts:
+            words = re.findall(r"[a-záéíóúñü]+", _norm(t))
+            if 0 < len(words) <= 3 and any(w in COMMIT_WORDS for w in words):
+                out.add(" ".join(words))
+        return out
+    return bool(commits(after) - commits(before))
