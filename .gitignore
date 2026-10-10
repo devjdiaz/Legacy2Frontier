@@ -1,0 +1,16 @@
+# Secretos y entorno local
+.env
+.env.*
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Estado en ejecución
+data/
+runs/
+
+# Notas privadas (brief del organizador, transcripción del kickoff)
+notes/
+
+.DS_Store

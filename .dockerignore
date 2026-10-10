@@ -1,0 +1,14 @@
+.env
+.env.*
+.venv
+notes
+explore
+docs
+data
+runs
+tests
+harness
+pruebas
+aidlc-docs
+.git
+**/__pycache__
