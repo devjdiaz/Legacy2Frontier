@@ -130,3 +130,13 @@ def test_conocimiento_requiere_token_y_genera_guia_y_openapi(tmp_path):
         assert c.get("/knowledge", headers=AUTH).json() == {"procedures": [], "lessons": []}
         assert c.get("/knowledge/openapi.json", headers=AUTH).json()["openapi"].startswith("3.")
         assert "Guía" in c.get("/knowledge/guide", headers=AUTH).text
+
+
+def test_resumen_nunca_contiene_algo_con_forma_de_clave(tmp_path):
+    async def copia_clave(tarea, url, password):
+        return "terminada", "La clave es Ab12Cd34Ef56Gh78Ij90Kl12 y el pedido PD-0143 quedó listo."
+
+    with client(tmp_path, copia_clave) as c:
+        task_id = c.post("/tasks", json=body(), headers=AUTH).json()["task_id"]
+        resumen = wait_final(c, task_id)["resumen"]
+        assert "Ab12Cd34Ef56Gh78Ij90Kl12" not in resumen and "PD-0143" in resumen

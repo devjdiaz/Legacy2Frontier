@@ -283,6 +283,10 @@ class Agent:
     async def solve(self, task: str) -> tuple[str, str]:
         if self.policy.kind == "otro":
             await self.policy.classify()
+        if self.policy.asks_credentials:  # nunca se exponen credenciales, vengan de la app o del agente
+            self._log("terminar", {"estado": "fallida"}, "política: la tarea pide revelar credenciales")
+            return "fallida", ("La tarea pide revelar o copiar credenciales (contraseñas, claves o tokens). Por seguridad "
+                               "no se exponen credenciales en el resumen. No se realizó ninguna acción en la aplicación.")
         obs = await observe(self.act.screen.frame.copy())
         while True:
             remaining = self._remaining()

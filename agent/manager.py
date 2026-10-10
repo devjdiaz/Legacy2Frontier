@@ -9,7 +9,7 @@ import logging
 import uuid
 from collections.abc import Awaitable, Callable
 
-from .safety import redact
+from .safety import redact, redact_secret_like
 from .store import TaskStore
 
 log = logging.getLogger(__name__)
@@ -67,4 +67,4 @@ class TaskManager:
             estado, resumen = "fallida", describe_error(exc)
         if estado not in FINAL_STATES:
             estado = "fallida"
-        self._store.finish(task_id, estado, redact(resumen, [password, *self._extra_secrets]))
+        self._store.finish(task_id, estado, redact_secret_like(redact(resumen, [password, *self._extra_secrets])))
