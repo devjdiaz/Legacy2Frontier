@@ -1,5 +1,7 @@
-# Agente que opera (y aprende) sistemas legacy sin API
+# Legacy2Frontier
 
+
+**Un agente que opera (y aprende) sistemas legacy sin API.**
 Frontier BOG/26 · Reto 1. El agente recibe una tarea en lenguaje natural y la ejecuta sobre una app
 legacy que nunca vio, **viendo solo píxeles por VNC** y respondiendo con clics y teclas.
 
