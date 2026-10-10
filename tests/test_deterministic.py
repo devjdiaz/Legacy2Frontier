@@ -116,3 +116,14 @@ def test_abrir_formulario_no_cuenta_como_cambio_pero_guardar_si():
     assert opened_commit_step(lista, formulario)          # «Crear cliente» solo abrió el formulario
     assert not opened_commit_step(formulario, lista)      # «Aplicar» y volver a la lista: sí fue el cambio
     assert not opened_commit_step(formulario, formulario + ["Cambios aplicados"])  # aplicar sin cerrar
+
+
+def test_opciones_de_lista_toleran_ocr_pero_no_confunden_valores():
+    from agent.actions import _same_option, _words
+    assert _same_option("ntrgado", "entregado")             # opción resaltada mal leída
+    assert not _same_option("Pendiente", "Entregado")
+    assert not _same_option("Cali", "Cúcuta")
+    assert not _same_option("Consultorio 204", "Consultorio 205")  # los números no se toleran
+    # la tarea nombra parte de la opción: todas sus palabras deben estar en la opción
+    assert set(_words("Dra. Paredes")) <= set(_words("Dra. Marcela Paredes Ortiz"))
+    assert not set(_words("Dra. Paredes")) <= set(_words("Dra. Paula Andrea Rojas"))

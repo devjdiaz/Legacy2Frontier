@@ -35,6 +35,20 @@ def _same_text(seen: str, wanted: str) -> bool:
     return abs(len(a) - len(b)) <= 1 and difflib.SequenceMatcher(None, a, b).ratio() >= 0.9
 
 
+def _words(text: str) -> list[str]:
+    return re.findall(r"\w+", norm(text).lower())
+
+
+def _same_option(seen: str, wanted: str) -> bool:
+    """Opción de lista igual a la pedida, tolerando el OCR sobre la opción resaltada («ntrgado» = «Entregado»)."""
+    a, b = norm(seen).lower(), norm(wanted).lower()
+    if a == b:
+        return True
+    if re.sub(r"\D", "", a) != re.sub(r"\D", "", b):
+        return False
+    return len(b) >= 5 and difflib.SequenceMatcher(None, a, b).ratio() >= 0.85
+
+
 def _field_text(boxes: list[TextBox], x: int, y: int) -> str:
     """El texto del campo en (x, y): las cajas de la misma línea más cercanas al punto."""
     line = [b for b in boxes if abs(b.cy - y) <= 12]
@@ -130,37 +144,62 @@ class Actuator:
 
     async def select(self, x: int, y: int, option: str) -> Outcome:
         before = self.screen.frame.copy()
+        shown = await observe(before)
         await self.screen.click(x, y)
         _, opened = await self.screen.wait_for_change(before, timeout=5.0)
         obs = await observe(opened)
         wanted = norm(option).lower()
-        matches = [b for b in obs.boxes if norm(b.text).lower() == wanted and abs(b.cx - x) < 400 and b.cy != y]
+        # las opciones de la lista son los textos que aparecieron al abrirla (no la tabla ni el resto de la página)
+        listed = [b for b in obs.boxes if b.cy != y and abs(b.cx - x) < 400 and abs(b.cy - y) < 520 and not any(
+            o.text == b.text and abs(o.cx - b.cx) <= 8 and abs(o.cy - b.cy) <= 8 for o in shown.boxes)]
+        matches = [b for b in listed if _same_option(b.text, wanted)] or [
+            b for b in obs.boxes if norm(b.text).lower() == wanted and abs(b.cx - x) < 400 and b.cy != y]
+        if not matches:  # la tarea suele nombrar parte de la opción («Dra. Paredes» → «Dra. Ana Paredes Ruiz»)
+            words = set(_words(wanted))
+            partial = [b for b in listed if words and words <= set(_words(b.text))]
+            if len({norm(b.text).lower() for b in partial}) > 1:
+                await self.screen.press("escape")
+                return Outcome(f"AMBIGUO: varias opciones contienen «{option}»: " + "; ".join(f"«{b.text}»" for b in partial[:8])
+                               + ". No se eligió ninguna: decide con la tarea (o termina fallida si no permite distinguir).",
+                               False, self.screen.frame.copy())
+            matches = partial
         if matches:
             target = min(matches, key=lambda b: abs(b.cy - y))
+            if not _same_option(target.text, wanted):
+                option = target.text  # coincidencia parcial: se verifica contra el texto real de la opción
             before = self.screen.frame.copy()
             await self.screen.click(target.cx, target.cy)
             _, frame = await self.screen.wait_for_change(before, timeout=5.0)
-        else:  # lista larga o no visible: escribir la opción sobre el control enfocado
+        else:  # no se reconoce en la lista (OCR o lista larga): búsqueda por teclado del control, y se verifica
             await self.screen.press("escape")
             await self.screen.click(x, y)
             await self.screen.type_text(option)
-            await self.screen.press("enter")
+            await self.screen.press("tab")  # Tab confirma sin enviar el formulario (Enter podría enviarlo)
             _, frame = await self.screen.wait_for_change(before, timeout=5.0)
         await self._park_pointer()
-        ok, seen, frame = await self._verify_text(x, y, option, timeout=4.0)
+        ok, seen, frame = await self._verify_option(x, y, option)
         if not ok and matches:  # el clic en la opción no se reflejó: probar con el teclado sobre el control
             before = self.screen.frame.copy()
             await self.screen.click(x, y)
             await self.screen.wait_for_change(before, timeout=2.0)
             await self.screen.type_text(option)
-            await self.screen.press("tab")  # Tab confirma la opción sin enviar el formulario (Enter podría enviarlo)
+            await self.screen.press("tab")
             await self._park_pointer()
-            ok, seen, frame = await self._verify_text(x, y, option, timeout=3.0)
+            ok, seen, frame = await self._verify_option(x, y, option)
         if ok:
-            return Outcome(f"seleccionado y verificado: «{seen}»", True, frame)
-        return Outcome(f"NO se pudo verificar la selección (cerca del control se lee «{seen}»). Mira la captura: si el "
-                       "valor correcto ya se ve en el control, continúa; si la lista quedó abierta, haz clic en la opción "
-                       "con su id. No repitas seleccionar igual.", True, frame)
+            return Outcome(f"seleccionado y verificado: «{option}»", True, frame)
+        visible = "; ".join(f"«{b.text}»" for b in sorted(listed, key=lambda b: b.cy)[:15])
+        return Outcome(f"NO se pudo verificar la selección: el control muestra «{seen}», que NO es «{option}». "
+                       "Si es otra opción, el filtro o el campo quedó con un valor equivocado: corrígelo antes de seguir "
+                       "usando seleccionar con el texto exacto de una opción"
+                       + (f" (opciones que se vieron al abrir la lista: {visible})." if visible else "."), True, frame)
+
+    async def _verify_option(self, x: int, y: int, option: str) -> tuple[bool, str, Image.Image]:
+        """Como _verify_text, pero acepta el nombre cortado por el ancho del control («Dra. Paula Andrea Roj»)."""
+        ok, seen, frame = await self._verify_text(x, y, option, timeout=4.0)
+        if not ok and len(norm(seen)) >= 8 and norm(option).lower().startswith(norm(seen).lower().rstrip(".… ")):
+            ok = True
+        return ok, seen, frame
 
     async def press(self, combo: str) -> Outcome:
         before = self.screen.frame.copy()

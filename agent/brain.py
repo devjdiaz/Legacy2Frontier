@@ -37,7 +37,10 @@ Reglas inquebrantables:
    vuelve a la lista (botón de volver) y busca primero.
    Si pulsar un botón no cambia la pantalla, puede que el resultado sea igual al anterior: no lo repitas.
 5. Las búsquedas pueden traer coincidencias parciales: compara los nombres EXACTOS (con tildes) contra la tarea.
-6. Para contar, sumar o listar filas: primero usa los filtros de la pantalla para acotar la lista (por
+6. Filtros: llena TODOS los filtros que pide la tarea (textos, listas y fechas) y SOLO DESPUÉS pulsa el botón
+   de filtrar; si cambias un filtro, vuelve a pulsarlo. Lo que exportes o cuentes es lo que la lista muestra
+   después de filtrar: confírmalo en pantalla antes de exportar.
+   Para contar, sumar o listar filas: primero usa los filtros de la pantalla para acotar la lista (por
    ejemplo nombre y estado), luego recolectar_paginas (recorre todas las páginas solo) y después
    contar/sumar/listar. Son exactas y eliminan filas repetidas entre páginas. Antes de una consulta nueva
    usa limpiar_tabla.
@@ -278,7 +281,10 @@ class Agent:
         msg = await self.llm.chat(STRONG_MODEL, [{"role": "user", "content": prompt}], max_tokens=400)
         text = msg.get("content") or ""
         motive = re.search(r'"motivo"\s*:\s*"((?:[^"\\]|\\.)*)', text)  # tolera comillas escapadas y cortes
-        return bool(re.search(r'"permitir"\s*:\s*true', text)), (motive.group(1) if motive else "")
+        if motive is None:  # respuesta ilegible: se muestra cruda para poder diagnosticar
+            log.warning("juez sin motivo legible: %r", text[:300])
+            return bool(re.search(r'"permitir"\s*:\s*true', text)), f"respuesta del revisor sin motivo: {text[:160]!r}"
+        return bool(re.search(r'"permitir"\s*:\s*true', text)), motive.group(1)
 
     def _log(self, tool: str, args: dict, result: str) -> None:
         step = Step(len(self.steps) + 1, tool, args, result, time.time())
