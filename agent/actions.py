@@ -112,9 +112,19 @@ class Actuator:
             if loop.time() >= deadline:
                 return False, closest, frame
 
+    async def _field_now(self, x: int, y: int) -> str:
+        """Lo que se lee ahora en el control junto a (x, y)."""
+        lines = group_lines(await read_region(self.screen.frame.copy(), (x - 450, y - 30, x + 650, y + 60)))
+        if not lines:
+            return ""
+        below = [l for l in lines if l[0].cy >= y - 12] or lines
+        near = min(below, key=lambda l: abs(l[0].cy - y))
+        return _field_text(near, x, near[0].cy)
+
     async def type_into(self, x: int, y: int, text: str) -> Outcome:
         seen = ""
         frame = self.screen.frame.copy()
+        shown_before = await self._field_now(x, y) if text else ""
         for attempt in range(2):
             before = self.screen.frame.copy()
             await self.screen.click(x, y)
@@ -128,10 +138,16 @@ class Actuator:
                 await self.screen.press("delete")
             if text:
                 await self.screen.type_text(text)
-                ok, seen, frame = await self._verify_text(x, y, text)
+                ok, seen, frame = await self._verify_text(x, y, text, timeout=3.0)
                 if ok:  # se tecleó exactamente `text`; si el OCR lo lee con una letra distinta, es ruido de lectura
                     noise = "" if norm(seen) == norm(text) else f" (el OCR lo lee «{seen}»: es ruido de lectura, el campo está bien)"
                     return Outcome(f"escrito y verificado: «{text}»{noise}", True, frame)
+                if attempt == 1 and shown_before and norm(seen) == norm(shown_before):
+                    # el control no aceptó texto y sigue mostrando lo mismo: es una lista desplegable → elegir la opción
+                    await self.screen.press("escape")
+                    out = await self.select(x, y, text)
+                    return Outcome(f"el control no acepta texto (es una lista); se intentó seleccionar: {out.summary}",
+                                   out.changed, out.frame)
             else:
                 changed, frame = await self.screen.wait_for_change(before, timeout=1.5)
                 if not changed:  # ya estaba vacío: lo que se lee suele ser texto de ayuda (placeholder)
