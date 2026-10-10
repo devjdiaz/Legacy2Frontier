@@ -6,6 +6,8 @@ nueva al mismo escritorio, y la conexión VNC se cierra siempre al salir.
 """
 import asyncio
 import logging
+import os
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 
@@ -41,6 +43,9 @@ class TaskManager:
         self._timeout = timeout_s
         self._extra_secrets = [s for s in extra_secrets if s]
         self._active: dict[str, asyncio.Task] = {}
+        # Dos tareas a la vez agotan la memoria del contenedor (1 GB) y lo matan con ambas adentro:
+        # las demás esperan turno. El tiempo de espera cuenta dentro del corte de la tarea.
+        self._slots = asyncio.Semaphore(int(os.environ.get("MAX_CONCURRENT_TASKS", "1")))
 
     def submit(self, tarea: str, url: str, password: str) -> str:
         """Registra la tarea y la lanza en segundo plano. Responde en milisegundos."""
@@ -54,9 +59,14 @@ class TaskManager:
 
     async def _execute(self, task_id: str, tarea: str, url: str, password: str, prev: asyncio.Task | None):
         try:
+            start = time.monotonic()
             if prev is not None:
                 await asyncio.wait({prev})  # el escritorio queda libre antes de empezar
-            estado, resumen = await asyncio.wait_for(self._run(tarea, url, password), self._timeout)
+            async with self._slots:
+                remaining = self._timeout - (time.monotonic() - start)
+                if remaining <= 0:  # esperó turno todo su tiempo
+                    raise TimeoutError
+                estado, resumen = await asyncio.wait_for(self._run(tarea, url, password), remaining)
         except TimeoutError:
             estado, resumen = "fallida", TIMEOUT_MSG
         except asyncio.CancelledError:
