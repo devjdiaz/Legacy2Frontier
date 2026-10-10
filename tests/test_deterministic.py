@@ -50,6 +50,7 @@ def test_comparacion_distingue_tildes():
 @pytest.mark.parametrize("label,expected", [
     ("Guardar", True), ("Exportar", True), ("Eliminar registro", True), ("Sí", True),
     ("Buscar", False), ("Siguiente", False), ("Volver", False), ("Cancelar", False), ("Nuevo", False),
+    ("Facturas", False), ("Facturación", False), ("Reportes", False),
 ])
 def test_acciones_con_efecto(label, expected):
     assert is_effectful(label) is expected

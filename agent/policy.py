@@ -66,9 +66,18 @@ def is_effectful(label: str | None) -> bool:
         if " " in effect:
             if effect in joined:
                 return True
-        elif effect in words or (len(effect) >= 5 and any(len(w) >= 5 and _similar(w, effect) for w in words)):
+        elif effect in words or (len(effect) >= 5 and any(_ocr_variant(w, effect) for w in words)):
             return True
     return False
+
+
+def _ocr_variant(word: str, effect: str) -> bool:
+    """¿`word` es `effect` con una letra mal leída por el OCR? Mismo largo, misma primera y última letra y una
+    sola diferencia ("Expcrtar" = "Exportar"). Así un sustantivo plural (termina en -s) no se confunde con un verbo
+    en infinitivo (termina en -r)."""
+    if len(word) != len(effect) or word[0] != effect[0] or word[-1] != effect[-1]:
+        return False
+    return sum(a != b for a, b in zip(word, effect)) <= 1
 
 
 @dataclass
