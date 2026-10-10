@@ -29,7 +29,8 @@ def card(title: str, body: str, color=(15, 23, 42)) -> Image.Image:
     d = ImageDraw.Draw(img)
     d.text((80, 260), title, font=font(44), fill=(255, 255, 255))
     y = 340
-    for line in textwrap.wrap(body, 70)[:12]:
+    lines = [l for para in body.split("\n") for l in (textwrap.wrap(para, 70) or [""])]
+    for line in lines[:13]:
         d.text((80, y), line, font=font(28), fill=(203, 213, 225))
         y += 42
     return img
