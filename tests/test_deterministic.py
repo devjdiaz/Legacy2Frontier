@@ -204,3 +204,35 @@ def test_homonimos_vetan_cualquier_cambio_en_tareas_de_modificar():
     assert not v.allow and "más de un registro" in v.message and jev.asked[0] == {"ambiguous"}
     crear = Policy(decider=jev, task="Registra a Ana Torres", kind="crear")
     assert asyncio.run(crear.gate_effect("Aplicar", "aplicar", "", "", seen="x")).allow  # crear no pregunta ambigüedad
+
+
+def test_cache_marca_solo_el_prefijo_fijo_y_fija_el_proveedor():
+    import json
+
+    import httpx
+
+    from agent.llm import LLM, Usage, cached_system
+
+    sent = []
+
+    def reply(request):  # proveedor falso: la segunda llamada lee de la caché lo que la primera escribió
+        sent.append(json.loads(request.content))
+        cached = 0 if len(sent) == 1 else 3986
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}], "usage": {
+            "cost": 0.001, "prompt_tokens": 4215,
+            "prompt_tokens_details": {"cached_tokens": cached, "cache_write_tokens": 3986 - cached}}})
+
+    async def two_steps():
+        usage = Usage()
+        async with httpx.AsyncClient(transport=httpx.MockTransport(reply)) as http:
+            llm = LLM("clave", usage, http)
+            for screen in ("pantalla 1", "pantalla 2"):  # lo que cambia en cada paso va en el mensaje del usuario
+                await llm.chat("m", [cached_system("reglas fijas"), {"role": "user", "content": screen}], role="actuar")
+        return usage
+
+    usage = asyncio.run(two_steps())
+    assert sent[0]["messages"][0]["content"][0]["cache_control"] == {"type": "ephemeral"}
+    assert "cache_control" not in json.dumps(sent[0]["messages"][1:])  # lo variable nunca se marca
+    assert sent[0]["session_id"] == sent[1]["session_id"]  # mismo prefijo → mismo proveedor → caché tibia
+    r = usage.by_role["actuar"]
+    assert (r["entrada"], r["cache_leida"], r["cache_escrita"]) == (8430, 3986, 3986)

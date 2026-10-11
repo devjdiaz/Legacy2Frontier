@@ -6,6 +6,7 @@ Si Jev falla o no está configurado, la misma pregunta va a un LLM barato con sa
 """
 import asyncio
 import base64
+import hashlib
 import io
 import json
 import logging
@@ -35,24 +36,49 @@ class Usage:
     cost: float = 0.0
     calls: int = 0
     by_model: dict[str, float] = field(default_factory=dict)
-    # por escalón de la cascada (jev, actuar, escalada, juez…): llamadas, costo, segundos y tokens de razonamiento
+    # por escalón de la cascada (jev, actuar, escalada, juez…): llamadas, costo, segundos, tokens de razonamiento
+    # y tokens de entrada (cuántos se leyeron de la caché y cuántos se escribieron en ella)
     by_role: dict[str, dict] = field(default_factory=dict)
 
-    def add(self, model: str, cost: float, role: str = "", seconds: float = 0.0, reasoning: int = 0) -> None:
+    def add(self, model: str, cost: float, role: str = "", seconds: float = 0.0, reasoning: int = 0,
+            tokens: int = 0, cached: int = 0, written: int = 0) -> None:
         self.cost += cost
         self.calls += 1
         self.by_model[model] = self.by_model.get(model, 0.0) + cost
-        r = self.by_role.setdefault(role or model, {"llamadas": 0, "costo": 0.0, "segundos": 0.0, "razonamiento": 0})
+        r = self.by_role.setdefault(role or model, {"llamadas": 0, "costo": 0.0, "segundos": 0.0, "razonamiento": 0,
+                                                    "entrada": 0, "cache_leida": 0, "cache_escrita": 0})
         r["llamadas"] += 1
         r["costo"] += cost
         r["segundos"] += seconds
         r["razonamiento"] += reasoning
+        r["entrada"] += tokens
+        r["cache_leida"] += cached
+        r["cache_escrita"] += written
 
 
 def image_part(img: Image.Image) -> dict:
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return {"type": "image_url", "image_url": {"url": "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()}}
+
+
+def cached_system(text: str) -> dict:
+    """Mensaje de sistema con punto de caché. Herramientas + sistema son idénticos en cada paso: el proveedor los guarda
+    y los relee a ~0,1× del precio de entrada en vez de cobrarlos completos. Lo que cambia (pantalla, historial) va
+    después, en el mensaje del usuario, y no se marca: marcarlo solo pagaría escrituras que nadie vuelve a leer."""
+    return {"role": "system", "content": [{"type": "text", "text": text, "cache_control": {"type": "ephemeral"}}]}
+
+
+def _cache_session(messages: list[dict]) -> str | None:
+    """Clave para que OpenRouter mande al MISMO proveedor (Anthropic, Bedrock, Vertex…) todas las llamadas que
+    comparten el prefijo cacheado: la caché de un proveedor no le sirve a otro. Sin ella, OpenRouter agrupa por el
+    primer mensaje del usuario, que aquí cambia en cada paso."""
+    first = messages[0] if messages else {}
+    if first.get("role") != "system" or not isinstance(first.get("content"), list):
+        return None
+    if not any("cache_control" in part for part in first["content"]):
+        return None
+    return "prefijo-" + hashlib.sha256(json.dumps(first["content"], sort_keys=True).encode()).hexdigest()[:16]
 
 
 # Modelos que rechazan tool_choice forzado ("required"/función concreta): se usa "auto" y se insiste.
@@ -68,6 +94,8 @@ class LLM:
     async def chat(self, model: str, messages: list[dict], tools: list[dict] | None = None,
                    tool_choice: str | dict | None = None, max_tokens: int = 700, role: str = "") -> dict:
         body = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0}
+        if session := _cache_session(messages):
+            body["session_id"] = session
         if tools:
             body["tools"] = tools
             body["tool_choice"] = "auto" if model in _NO_FORCED_TOOLS else (tool_choice or "required")
@@ -92,7 +120,10 @@ class LLM:
                     raise LLMError(f"respuesta sin choices: {str(data)[:200]}")
                 usage = data.get("usage") or {}
                 reasoning = (usage.get("completion_tokens_details") or {}).get("reasoning_tokens") or 0
-                self._usage.add(model, float(usage.get("cost") or 0), role, time.monotonic() - started, int(reasoning))
+                prompt = usage.get("prompt_tokens_details") or {}
+                self._usage.add(model, float(usage.get("cost") or 0), role, time.monotonic() - started, int(reasoning),
+                                int(usage.get("prompt_tokens") or 0), int(prompt.get("cached_tokens") or 0),
+                                int(prompt.get("cache_write_tokens") or 0))
                 return data["choices"][0]["message"]
             except (httpx.TimeoutException, httpx.TransportError) as exc:
                 last = exc

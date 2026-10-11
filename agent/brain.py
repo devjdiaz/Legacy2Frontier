@@ -13,7 +13,7 @@ import unicodedata
 from dataclasses import dataclass, field
 
 from .actions import Actuator, Outcome, label_at
-from .llm import FAST_MODEL, LLM, STRONG_MODEL, LLMError, image_part
+from .llm import FAST_MODEL, LLM, STRONG_MODEL, LLMError, cached_system, image_part
 from .memory import AppMemory, screen_signature
 from .perception import Observation, norm, observe, parse_table
 from .policy import MUTATING, Policy, Verdict, is_commit, is_effectful, opened_commit_step
@@ -260,7 +260,7 @@ class Agent:
             parts.append("AVISOS:\n" + "\n".join(f"- {w}" for w in warnings))
         parts.append("Pantalla actual — texto OCR ([id]texto@x,y):\n" + obs.as_text())
         return [
-            {"role": "system", "content": SYSTEM},
+            cached_system(SYSTEM),
             {"role": "user", "content": [{"type": "text", "text": "\n\n".join(parts)}, image_part(obs.frame)]},
         ]
 

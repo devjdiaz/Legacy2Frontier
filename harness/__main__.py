@@ -113,11 +113,12 @@ async def main() -> None:
     roles: dict[str, dict] = {}
     for r in report:  # costo y tiempo por escalón de la cascada (jev, actuar, escalada, juez…)
         for name, v in (r.get("por_rol") or {}).items():
-            acc = roles.setdefault(name, {"llamadas": 0, "costo": 0.0, "segundos": 0.0})
+            acc = roles.setdefault(name, {"llamadas": 0, "costo": 0.0, "segundos": 0.0, "entrada": 0, "cache_leida": 0})
             for k in acc:
                 acc[k] += v.get(k, 0)
     for name, v in sorted(roles.items(), key=lambda kv: -kv[1]["costo"]):
-        print(f"  {name:13} {v['llamadas']:4} llamadas · ${v['costo']:.3f} · {v['segundos']:.0f} s")
+        cache = f" · {v['cache_leida'] / v['entrada']:.0%} de la entrada salió de la caché" if v["entrada"] else ""
+        print(f"  {name:13} {v['llamadas']:4} llamadas · ${v['costo']:.3f} · {v['segundos']:.0f} s{cache}")
     os.makedirs("runs", exist_ok=True)
     out = os.path.join("runs", f"harness-{time.strftime('%Y%m%d-%H%M%S')}.json")
     json.dump(report, open(out, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
