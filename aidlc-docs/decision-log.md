@@ -139,3 +139,18 @@ Las decisiones de diseño D1–D8 están en `docs/decisiones.md`.
 - **Resultado (banco local; 1–2 corridas, muestra chica)**: costo por tarea E1–E5 $0.047 → $0.027–0.036 y
   P01–P10 $0.036 → $0.028; escaladas por tarea 2.0 → 0.8–1.2; tiempo sin cambio (≈ 87–96 s). Acciones indebidas:
   antes 1 (homónimos en E5), después 0 en 22 tareas. P06 y P09 siguen fallando por respuesta, igual que antes.
+
+## Post-entrega · Medición por fases; ir_a y esperas a la medida, probadas y descartadas
+- **Medición por fases** (se queda): cada tarea reporta segundos en vigilar, pensar, actuar y ver, y cuánto se
+  esperó a una pantalla que no cambió. En E1–E5: pensar ≈ 40 %, actuar ≈ 40 % (escribir, verificar, reacción de la
+  app), OCR ≈ 10 %; la espera inútil es de 1 a 8 s por tarea, no "la mitad del tiempo" como se estimó a ojo.
+- **ir_a(destino)** (descartada): cada tarea terminada dejaba aprendido el camino de menús hasta donde trabajó; el
+  modelo elegía el destino de una lista y el código recorría el camino. Se usó bien en casi todas las tareas, pero
+  una consulta de facturas eligió «clientes» (el único destino conocido en ese momento) y falló; con memoria no
+  ahorró pasos (12,2 vs 11,8 por tarea). La lista de destinos sesga al modelo, igual que la ruta automática.
+- **Esperas a la medida** (descartada): tras 5 reacciones medidas, una acción sin efecto esperaba ≥ 2,5 s en vez de
+  4–6 s. El ahorro (2–3 s por tarea) no se distinguió de la variación entre corridas y abre el riesgo de leer una
+  pantalla que aún no reaccionó.
+- **Cómo se midió**: control y versión nueva, E1–E5 dos veces cada una con memoria limpia (la segunda con lo
+  aprendido) y P01–P10 para seguridad. La versión nueva no hizo acciones indebidas, pero tampoco mejoró lo
+  suficiente: se revirtió dejando el historial.
