@@ -96,7 +96,7 @@ class Actuator:
         started = asyncio.get_running_loop().time()
         before = self.screen.frame.copy()
         await self.screen.click(x, y, double=double)
-        changed, frame = await self.screen.wait_for_change(before, timeout=timeout or (9.0 if effectful else 6.0))
+        changed, frame = await self.screen.wait_for_change(before, timeout=timeout or (9.0 if effectful else self.screen.patience(6.0)))
         if not changed and effectful:
             await asyncio.sleep(2.0)
             frame = await self.screen.capture()
@@ -244,14 +244,16 @@ class Actuator:
         started = asyncio.get_running_loop().time()
         before = self.screen.frame.copy()
         await self.screen.press(combo)
-        changed, frame = await self.screen.wait_for_change(before, timeout=5.0)
+        # Enter puede enviar un formulario: conserva la espera larga para no creer que no pasó nada y repetirlo
+        wait = 5.0 if combo.lower() in ("enter", "return") else self.screen.patience(5.0)
+        changed, frame = await self.screen.wait_for_change(before, timeout=wait)
         return self._idle(started, Outcome("la pantalla cambió" if changed else "NO se vio ningún cambio", changed, frame))
 
     async def scroll(self, x: int, y: int, amount: int) -> Outcome:
         started = asyncio.get_running_loop().time()
         before = self.screen.frame.copy()
         await self.screen.scroll(x, y, amount)
-        changed, frame = await self.screen.wait_for_change(before, timeout=4.0)
+        changed, frame = await self.screen.wait_for_change(before, timeout=self.screen.patience(4.0))
         return self._idle(started, Outcome("la pantalla cambió" if changed else "NO se vio ningún cambio", changed, frame))
 
     async def wait(self, seconds: float) -> Outcome:

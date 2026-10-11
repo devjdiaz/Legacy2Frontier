@@ -53,6 +53,7 @@ class Screen:
         self._error: BaseException | None = None
         self.pointer = (0, 0)
         self._cursor_trail: list[tuple[float, int, int]] = []  # (momento, x, y) recientes
+        self.latencies: list[float] = []  # segundos que tardó la app en reaccionar a cada acción (esta conexión)
 
     # ------------------------------------------------------------ protocolo
 
@@ -179,7 +180,8 @@ class Screen:
         Devuelve (cambió, frame final). Pide actualizaciones incrementales: solo viaja lo que cambió.
         """
         loop = asyncio.get_running_loop()
-        deadline = loop.time() + timeout
+        started = loop.time()
+        deadline = started + timeout
         changed = False
         prev = before
         stable_since = 0.0
@@ -191,6 +193,7 @@ class Screen:
             if not changed:
                 if self.differs(current, before):
                     changed, prev, stable_since = True, current, loop.time()
+                    self.latencies.append(stable_since - started)
             elif self.differs(current, prev):
                 prev, stable_since = current, loop.time()
             elif loop.time() - stable_since >= settle:
@@ -198,6 +201,16 @@ class Screen:
             if not changed:
                 await asyncio.sleep(0.15)
         return changed, self.frame.copy()
+
+    def patience(self, default: float) -> float:
+        """Cuánto esperar una reacción que quizá no llegue. Con 5 reacciones medidas en esta conexión, holgado sobre lo
+        que tarda ESTA app (4 veces lo normal y 1,5 veces lo más lento visto, mínimo 2,5 s); nunca más que `default`.
+        Solo para acciones sin efecto: lo que guarda o envía conserva su espera larga."""
+        if len(self.latencies) < 5:
+            return default
+        ordered = sorted(self.latencies)
+        p90 = ordered[int(0.9 * (len(ordered) - 1))]
+        return min(default, max(2.5, 4 * p90, 1.5 * ordered[-1]))
 
     # ------------------------------------------------------------ ratón y teclado
 
