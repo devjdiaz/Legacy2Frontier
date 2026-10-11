@@ -215,7 +215,7 @@ class Agent:
     def __init__(self, llm: LLM, policy: Policy, actuator: Actuator, deadline: float, trace=None, memory_hint: str = "",
                  memory: AppMemory | None = None, app: str = ""):
         self.memory_hint = memory_hint
-        self.memory = memory  # mapa de la app aprendido en tareas anteriores (pantallas, acciones que no sirven, rutas)
+        self.memory = memory  # mapa de la app aprendido en tareas anteriores (pantallas y acciones que no sirven)
         self.app = app
         self._screen_ids: dict[str, int] = {}
         self.last_listing = ""  # último listado visto: con él la política detecta registros homónimos
@@ -344,8 +344,6 @@ class Agent:
             return "fallida", ("La tarea pide revelar o copiar credenciales (contraseñas, claves o tokens). Por seguridad "
                                "no se exponen credenciales en el resumen. No se realizó ninguna acción en la aplicación.")
         obs = await observe(self.act.screen.frame.copy())
-        if self.memory:
-            obs = await self._replay_route(obs)
         while True:
             remaining = self._remaining()
             force = remaining < 30 or len(self.steps) >= 45
@@ -429,21 +427,6 @@ class Agent:
         elif tool == "esperar":
             return "esperar"
         return ""
-
-    async def _replay_route(self, obs: Observation) -> Observation:
-        """Ruta aprendida: los clics de navegación con que empezaron todas las últimas tareas terminadas de esta app se
-        repiten sin consultar al modelo, verificando que cada uno cambie la pantalla; al primer desvío decide el modelo."""
-        for label in self.memory.common_route(self.app):
-            box = next((b for b in obs.boxes if " ".join(b.text.lower().split()) == label), None)
-            if box is None or is_effectful(box.text):
-                break
-            out = await self.act.click(box.cx, box.cy)
-            self._log("clic", {"objetivo": box.id, "razon": "ruta aprendida"},
-                      f"clic en «{box.text}»: {out.summary} (ruta aprendida de tareas anteriores, sin consultar al modelo)")
-            if not out.changed:
-                break
-            obs = await observe(out.frame, prev=obs)
-        return obs
 
     async def _execute(self, task: str, tool: str, args: dict, obs: Observation) -> Outcome | None:
         """Ejecuta una herramienta. Devuelve Outcome si la pantalla pudo cambiar; None si no (herramientas de tabla)."""

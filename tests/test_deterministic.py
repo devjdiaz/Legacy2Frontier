@@ -186,23 +186,6 @@ def test_mapa_aprende_que_una_accion_no_sirve_y_lo_olvida_si_vuelve_a_servir(tmp
     assert AppMemory(str(tmp_path / "m.db")).inert("app", 1) == []  # persiste entre tareas
 
 
-def test_ruta_aprendida_es_lo_comun_a_todas_las_ultimas_tareas_y_sin_efectos_ni_datos(tmp_path):
-    from types import SimpleNamespace as S
-
-    from agent.memory import AppMemory, route_of
-    steps = [S(tool="clic", result="clic en «Entendido»: la pantalla cambió"),
-             S(tool="clic", result="clic en «Ventas»: la pantalla cambió (ruta aprendida de tareas anteriores)"),
-             S(tool="clic", result="clic en «Pedidos»: la pantalla cambió"),
-             S(tool="clic", result="clic en «PD-0042»: la pantalla cambió")]
-    assert route_of(steps, is_effectful) == ["entendido", "ventas", "pedidos"]  # el código de registro corta la ruta
-    assert route_of([S(tool="clic", result="clic en «Guardar»: la pantalla cambió")], is_effectful) == []
-    mem = AppMemory(str(tmp_path / "m.db"))
-    mem.add_route("app", ["entendido", "ventas", "pedidos"])
-    assert mem.common_route("app") == []  # una sola tarea no basta
-    mem.add_route("app", ["entendido", "ventas", "clientes"])
-    assert mem.common_route("app") == ["entendido", "ventas"]
-
-
 def test_homonimos_vetan_cualquier_cambio_en_tareas_de_modificar():
     import asyncio
     from agent.policy import Policy

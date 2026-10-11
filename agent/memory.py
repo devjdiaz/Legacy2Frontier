@@ -79,17 +79,6 @@ def _similarity(a: frozenset[str], b: frozenset[str]) -> float:
     return len(a & b) / len(a | b) if a or b else 1.0
 
 
-def route_of(steps: list, effectful) -> list[str]:
-    """Ruta de navegación con que empezó una tarea: los primeros clics sin efecto que cambiaron la pantalla."""
-    route = []
-    for s in steps:
-        label = re.match(r"clic en «(.+?)»: la pantalla cambió", s.result) if s.tool == "clic" else None
-        if not label or effectful(label.group(1)) or re.search(r"\d", label.group(1)):
-            break
-        route.append(_norm(label.group(1)))
-    return route
-
-
 SAME_SCREEN = 0.6  # parecido mínimo de rótulos para considerar que es la misma pantalla
 INERT_AFTER = 2    # intentos sin ningún cambio (y ninguno con cambio) para aprender que una acción no hace nada
 
@@ -106,11 +95,10 @@ class AppMemory:
                 app TEXT, kind TEXT, task TEXT, outline TEXT, steps INTEGER, seconds REAL, created REAL)""")
             self._db.execute("""CREATE TABLE IF NOT EXISTS lessons (
                 app TEXT, lesson TEXT, created REAL, UNIQUE(app, lesson))""")
-            # mapa de la app (grafo): pantallas por sus rótulos, qué pasó con cada acción en cada pantalla, y rutas
+            # mapa de la app (grafo): pantallas por sus rótulos y qué pasó con cada acción en cada pantalla
             self._db.execute("CREATE TABLE IF NOT EXISTS screens (app TEXT, id INTEGER, texts TEXT)")
             self._db.execute("""CREATE TABLE IF NOT EXISTS outcomes (app TEXT, screen INTEGER, action TEXT,
                 changed INTEGER, unchanged INTEGER, UNIQUE(app, screen, action))""")
-            self._db.execute("CREATE TABLE IF NOT EXISTS routes (app TEXT, route TEXT, created REAL)")
             self._db.commit()
 
     def screen_id(self, app: str, signature: frozenset[str]) -> int:
@@ -144,25 +132,6 @@ class AppMemory:
             rows = self._db.execute("SELECT action FROM outcomes WHERE app = ? AND screen = ? AND changed = 0 AND "
                                     "unchanged >= ? ORDER BY unchanged DESC LIMIT 6", (app, screen, INERT_AFTER)).fetchall()
         return [r[0] for r in rows]
-
-    def add_route(self, app: str, route: list[str]) -> None:
-        with self._lock:
-            self._db.execute("INSERT INTO routes VALUES (?, ?, ?)", (app, json.dumps(route, ensure_ascii=False), time.time()))
-            self._db.commit()
-
-    def common_route(self, app: str, last: int = 5) -> list[str]:
-        """Los clics de navegación con que empezaron TODAS las últimas tareas terminadas (al menos dos)."""
-        with self._lock:
-            routes = [json.loads(r[0]) for r in self._db.execute(
-                "SELECT route FROM routes WHERE app = ? ORDER BY created DESC LIMIT ?", (app, last)).fetchall()]
-        if len(routes) < 2:
-            return []
-        common = []
-        for labels in zip(*routes):
-            if len(set(labels)) != 1:
-                break
-            common.append(labels[0])
-        return common
 
     def recall(self, app: str, kind: str) -> str:
         with self._lock:
