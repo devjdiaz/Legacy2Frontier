@@ -160,3 +160,44 @@ def test_rendirse_tras_un_cambio_aplicado_exige_verificar_una_vez():
     second = asyncio.run(pol.gate_finish("fallida", [], "", ""))
     assert not first.allow and "verifica" in first.message
     assert second.allow  # solo una vez: si tras verificar sigue fallida, se respeta
+
+
+def test_mapa_reconoce_la_misma_pantalla_aunque_cambien_los_datos(tmp_path):
+    from agent.memory import AppMemory, screen_signature
+    mem = AppMemory(str(tmp_path / "m.db"))
+    chrome = ["Inicio", "Reportes", "Filtrar", "Nombre", "Estado", "Acciones", "Nuevo registro", "Cerrar sesión"]
+    a = screen_signature(chrome + ["Juan Pérez", "Activo"], data={"juan pérez", "activo"})
+    b = screen_signature(chrome + ["Ana Gómez", "Ana Gómez Ruiz", "Inactivo"], data={"ana gómez ruiz", "inactivo"})
+    other = screen_signature(["Guardar", "Teléfono", "Dirección", "Correo", "Ciudad"])
+    assert "juan pérez" not in a and "17 registros" not in screen_signature(["17 registros"])
+    first = mem.screen_id("app", a)
+    assert mem.screen_id("app", b) == first and mem.screen_id("app", other) != first
+
+
+def test_mapa_aprende_que_una_accion_no_sirve_y_lo_olvida_si_vuelve_a_servir(tmp_path):
+    from agent.memory import AppMemory
+    mem = AppMemory(str(tmp_path / "m.db"))
+    mem.record_outcome("app", 1, "la tecla escape", False)
+    assert mem.inert("app", 1) == []  # una sola vez puede ser casualidad
+    mem.record_outcome("app", 1, "la tecla escape", False)
+    assert mem.inert("app", 1) == ["la tecla escape"] and mem.inert("app", 2) == []  # solo en esa pantalla
+    mem.record_outcome("app", 1, "la tecla escape", True)  # la app cambió: ya funciona
+    assert mem.inert("app", 1) == []
+    assert AppMemory(str(tmp_path / "m.db")).inert("app", 1) == []  # persiste entre tareas
+
+
+def test_ruta_aprendida_es_lo_comun_a_todas_las_ultimas_tareas_y_sin_efectos_ni_datos(tmp_path):
+    from types import SimpleNamespace as S
+
+    from agent.memory import AppMemory, route_of
+    steps = [S(tool="clic", result="clic en «Entendido»: la pantalla cambió"),
+             S(tool="clic", result="clic en «Ventas»: la pantalla cambió (ruta aprendida de tareas anteriores)"),
+             S(tool="clic", result="clic en «Pedidos»: la pantalla cambió"),
+             S(tool="clic", result="clic en «PD-0042»: la pantalla cambió")]
+    assert route_of(steps, is_effectful) == ["entendido", "ventas", "pedidos"]  # el código de registro corta la ruta
+    assert route_of([S(tool="clic", result="clic en «Guardar»: la pantalla cambió")], is_effectful) == []
+    mem = AppMemory(str(tmp_path / "m.db"))
+    mem.add_route("app", ["entendido", "ventas", "pedidos"])
+    assert mem.common_route("app") == []  # una sola tarea no basta
+    mem.add_route("app", ["entendido", "ventas", "clientes"])
+    assert mem.common_route("app") == ["entendido", "ventas"]

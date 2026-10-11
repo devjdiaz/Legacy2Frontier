@@ -65,18 +65,104 @@ def outline(steps: list, task: str) -> str:
     return " → ".join(compact)
 
 
+def screen_signature(texts: list[str], data: set[str] = frozenset()) -> frozenset[str]:
+    """Huella de una pantalla: sus rótulos (textos cortos sin números), no sus datos (celdas de tabla, valores)."""
+    out = set()
+    for t in texts:
+        t = _norm(t)
+        if 3 <= len(t) <= 40 and len(t.split()) <= 4 and not re.search(r"\d", t) and not any(t in d for d in data):
+            out.add(t)
+    return frozenset(out)
+
+
+def _similarity(a: frozenset[str], b: frozenset[str]) -> float:
+    return len(a & b) / len(a | b) if a or b else 1.0
+
+
+def route_of(steps: list, effectful) -> list[str]:
+    """Ruta de navegación con que empezó una tarea: los primeros clics sin efecto que cambiaron la pantalla."""
+    route = []
+    for s in steps:
+        label = re.match(r"clic en «(.+?)»: la pantalla cambió", s.result) if s.tool == "clic" else None
+        if not label or effectful(label.group(1)) or re.search(r"\d", label.group(1)):
+            break
+        route.append(_norm(label.group(1)))
+    return route
+
+
+SAME_SCREEN = 0.6  # parecido mínimo de rótulos para considerar que es la misma pantalla
+INERT_AFTER = 2    # intentos sin ningún cambio (y ninguno con cambio) para aprender que una acción no hace nada
+
+
 class AppMemory:
     def __init__(self, path: str):
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         self._db = sqlite3.connect(path, check_same_thread=False)
         self._lock = threading.Lock()
+        self._screens: dict[str, list[tuple[int, frozenset[str]]]] = {}
         with self._lock:
             self._db.execute("PRAGMA journal_mode=WAL")
             self._db.execute("""CREATE TABLE IF NOT EXISTS procedures (
                 app TEXT, kind TEXT, task TEXT, outline TEXT, steps INTEGER, seconds REAL, created REAL)""")
             self._db.execute("""CREATE TABLE IF NOT EXISTS lessons (
                 app TEXT, lesson TEXT, created REAL, UNIQUE(app, lesson))""")
+            # mapa de la app (grafo): pantallas por sus rótulos, qué pasó con cada acción en cada pantalla, y rutas
+            self._db.execute("CREATE TABLE IF NOT EXISTS screens (app TEXT, id INTEGER, texts TEXT)")
+            self._db.execute("""CREATE TABLE IF NOT EXISTS outcomes (app TEXT, screen INTEGER, action TEXT,
+                changed INTEGER, unchanged INTEGER, UNIQUE(app, screen, action))""")
+            self._db.execute("CREATE TABLE IF NOT EXISTS routes (app TEXT, route TEXT, created REAL)")
             self._db.commit()
+
+    def screen_id(self, app: str, signature: frozenset[str]) -> int:
+        """La pantalla conocida más parecida (por sus rótulos) o una nueva."""
+        with self._lock:
+            if app not in self._screens:
+                rows = self._db.execute("SELECT id, texts FROM screens WHERE app = ?", (app,)).fetchall()
+                self._screens[app] = [(i, frozenset(json.loads(t))) for i, t in rows]
+            known = self._screens[app]
+            best = max(known, key=lambda s: _similarity(s[1], signature), default=None)
+            if best is not None and _similarity(best[1], signature) >= SAME_SCREEN:
+                return best[0]
+            new_id = len(known) + 1
+            known.append((new_id, signature))
+            self._db.execute("INSERT INTO screens VALUES (?, ?, ?)", (app, new_id, json.dumps(sorted(signature), ensure_ascii=False)))
+            self._db.commit()
+            return new_id
+
+    def record_outcome(self, app: str, screen: int, action: str, changed: bool) -> None:
+        with self._lock:
+            self._db.execute("INSERT OR IGNORE INTO outcomes VALUES (?, ?, ?, 0, 0)", (app, screen, action))
+            column = "changed" if changed else "unchanged"
+            self._db.execute(f"UPDATE outcomes SET {column} = {column} + 1 WHERE app = ? AND screen = ? AND action = ?",
+                             (app, screen, action))
+            self._db.commit()
+
+    def inert(self, app: str, screen: int) -> list[str]:
+        """Acciones que en esta pantalla nunca cambiaron nada (y se intentaron varias veces). Si una vez funciona, deja
+        de estar en la lista: el mapa se corrige solo cuando la app cambia."""
+        with self._lock:
+            rows = self._db.execute("SELECT action FROM outcomes WHERE app = ? AND screen = ? AND changed = 0 AND "
+                                    "unchanged >= ? ORDER BY unchanged DESC LIMIT 6", (app, screen, INERT_AFTER)).fetchall()
+        return [r[0] for r in rows]
+
+    def add_route(self, app: str, route: list[str]) -> None:
+        with self._lock:
+            self._db.execute("INSERT INTO routes VALUES (?, ?, ?)", (app, json.dumps(route, ensure_ascii=False), time.time()))
+            self._db.commit()
+
+    def common_route(self, app: str, last: int = 5) -> list[str]:
+        """Los clics de navegación con que empezaron TODAS las últimas tareas terminadas (al menos dos)."""
+        with self._lock:
+            routes = [json.loads(r[0]) for r in self._db.execute(
+                "SELECT route FROM routes WHERE app = ? ORDER BY created DESC LIMIT ?", (app, last)).fetchall()]
+        if len(routes) < 2:
+            return []
+        common = []
+        for labels in zip(*routes):
+            if len(set(labels)) != 1:
+                break
+            common.append(labels[0])
+        return common
 
     def recall(self, app: str, kind: str) -> str:
         with self._lock:

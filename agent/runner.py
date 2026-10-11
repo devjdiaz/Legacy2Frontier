@@ -14,9 +14,9 @@ from .actions import Actuator
 from .brain import Agent
 from .config import load
 from .llm import FAST_MODEL, LLM, Decider, Usage
-from .memory import LESSONS_PROMPT, AppMemory, fingerprint, parse_lessons
+from .memory import LESSONS_PROMPT, AppMemory, fingerprint, parse_lessons, route_of
 from .perception import observe
-from .policy import Policy
+from .policy import Policy, is_effectful
 
 log = logging.getLogger(__name__)
 SAFETY_MARGIN_S = 20.0  # el manager corta duro en TASK_TIMEOUT_S; el agente cierra antes, a conciencia
@@ -41,6 +41,7 @@ async def _learn(memory: AppMemory, llm: LLM, app: str, kind: str, tarea: str, e
     try:
         if estado == "terminada":
             memory.remember(app, kind, tarea, agent.steps, seconds)
+            memory.add_route(app, route_of(agent.steps, is_effectful))
         if time_left > 6:
             prompt = LESSONS_PROMPT % (tarea, f"{estado}: {resumen}", agent._history(last=40))
             msg = await asyncio.wait_for(llm.chat(FAST_MODEL, [{"role": "user", "content": prompt}], max_tokens=300, role="aprender"), timeout=5)
@@ -94,7 +95,10 @@ async def run_with_stats(tarea: str, url: str, password: str, stats: RunStats | 
             # con pistas 4/5 y +52% de costo vs 5/5 sin pistas; el modelo confundía la memoria con su historial.
             hint = memory.recall(app, policy.kind) if os.environ.get("MEMORY_HINTS") == "1" else ""
             stats.app, stats.kind, stats.used_memory = app, policy.kind, bool(hint)
-            agent = Agent(llm, policy, Actuator(screen), deadline, trace=trace, memory_hint=hint)
+            # Mapa de la app (pantallas, acciones que no hacen nada, ruta inicial): lo usa el código, no es texto libre
+            # para el modelo. SCREEN_MEMORY=0 lo apaga.
+            screen_memory = memory if os.environ.get("SCREEN_MEMORY", "1") == "1" else None
+            agent = Agent(llm, policy, Actuator(screen), deadline, trace=trace, memory_hint=hint, memory=screen_memory, app=app)
             try:
                 estado, resumen = await agent.solve(tarea)
             finally:
