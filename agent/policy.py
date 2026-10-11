@@ -157,8 +157,9 @@ class Policy:
             res = await self.decider.ask(f"Tarea: {self.task}\n{seen}", {"ambiguous": {"type": "noul", "instructions": AMBIGUOUS_Q}})
             if float(res["ambiguous"]) >= 0.5:
                 return Verdict(False, "Vetado: más de un registro coincide con lo que pide la tarea y no hay un dato que "
-                                      "permita elegir uno solo. No modifiques ninguno: termina como fallida nombrando los "
-                                      "registros que coinciden.")
+                                      "permita elegir uno solo. No modifiques ninguno: vuelve al listado y termina como "
+                                      "fallida nombrando CADA registro que coincide, con su código y su número de documento "
+                                      "tal como se ven en el listado.")
         state = (f"Tarea: {self.task}\nAcción propuesta: pulsar «{label}». Motivo del agente: {reason}\n"
                  f"Acciones previas:\n{history}\nPantalla actual (texto):\n{screen_text[:8000]}")
         res = await self.decider.ask(state, {
