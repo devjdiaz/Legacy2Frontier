@@ -99,9 +99,6 @@ class AppMemory:
             self._db.execute("CREATE TABLE IF NOT EXISTS screens (app TEXT, id INTEGER, texts TEXT)")
             self._db.execute("""CREATE TABLE IF NOT EXISTS outcomes (app TEXT, screen INTEGER, action TEXT,
                 changed INTEGER, unchanged INTEGER, UNIQUE(app, screen, action))""")
-            # destinos: el camino de clics de menú con que una tarea terminada llegó a la pantalla donde trabajó
-            self._db.execute("CREATE TABLE IF NOT EXISTS destinations (app TEXT, label TEXT, path TEXT, created REAL, "
-                             "UNIQUE(app, label))")
             self._db.commit()
 
     def screen_id(self, app: str, signature: frozenset[str]) -> int:
@@ -135,27 +132,6 @@ class AppMemory:
             rows = self._db.execute("SELECT action FROM outcomes WHERE app = ? AND screen = ? AND changed = 0 AND "
                                     "unchanged >= ? ORDER BY unchanged DESC LIMIT 6", (app, screen, INERT_AFTER)).fetchall()
         return [r[0] for r in rows]
-
-    def add_destination(self, app: str, path: list[tuple[str, int, int]]) -> None:
-        """Guarda el camino (rótulo, x, y de cada clic) hacia su última pantalla. Uno de un solo clic no ahorra nada."""
-        if len(path) < 2:
-            return
-        with self._lock:
-            self._db.execute("INSERT OR REPLACE INTO destinations VALUES (?, ?, ?, ?)",
-                             (app, path[-1][0], json.dumps(path, ensure_ascii=False), time.time()))
-            self._db.commit()
-
-    def destinations(self, app: str) -> dict[str, list[tuple[str, int, int]]]:
-        with self._lock:
-            rows = self._db.execute("SELECT label, path FROM destinations WHERE app = ? ORDER BY created DESC LIMIT 12",
-                                    (app,)).fetchall()
-        return {label: [tuple(step) for step in json.loads(path)] for label, path in rows}
-
-    def forget_destination(self, app: str, label: str) -> None:
-        """Un camino que dejó de funcionar (la app cambió) se olvida; la próxima tarea lo vuelve a aprender."""
-        with self._lock:
-            self._db.execute("DELETE FROM destinations WHERE app = ? AND label = ?", (app, label))
-            self._db.commit()
 
     def recall(self, app: str, kind: str) -> str:
         with self._lock:

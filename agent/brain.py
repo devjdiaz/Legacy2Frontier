@@ -91,9 +91,6 @@ TOOLS = [
     _tool("desplazar", "Rueda del ratón en (x, y); cantidad negativa = arriba.",
           {**XY, "cantidad": {"type": "integer"}}, ["x", "y", "cantidad"]),
     _tool("esperar", "Espera unos segundos a que la aplicación termine de cargar.", {"segundos": {"type": "number"}}, ["segundos"]),
-    _tool("ir_a", "Llega a una pantalla de DESTINOS CONOCIDOS repitiendo el camino de menús aprendido en tareas "
-          "anteriores: varios clics en un solo paso. Úsala solo si esa es la pantalla que la tarea necesita.",
-          {"destino": {"type": "string"}}, ["destino"]),
     _tool("recolectar_tabla", "Lee la tabla visible y acumula sus filas (sin repetidas).", {}, []),
     _tool("recolectar_paginas", "Lee la tabla y avanza con el paginador hasta la última página, acumulando todas "
           "las filas sin repetidas. Úsala en vez de paginar a mano.", {}, []),
@@ -223,9 +220,6 @@ class Agent:
         self._screen_ids: dict[str, int] = {}
         self.last_listing = ""  # último listado visto: con él la política detecta registros homónimos
         self.phases = {"vigilar": 0.0, "pensar": 0.0, "actuar": 0.0, "ver": 0.0}  # segundos por fase del ciclo
-        # destinos aprendidos (rótulo → camino de clics): el modelo elige A DÓNDE ir y el código recorre el camino
-        self.destinations = memory.destinations(app) if memory else {}
-        self.click_at: dict[int, tuple[int, int]] = {}  # paso → dónde se hizo clic (para aprender caminos)
         self.llm = llm
         self.policy = policy
         self.act = actuator
@@ -259,9 +253,6 @@ class Agent:
             parts.append(f"Tipo de tarea detectado: {self.policy.kind}")
         if self.memory_hint:
             parts.append(self.memory_hint)
-        if self.destinations:
-            parts.append("DESTINOS CONOCIDOS de esta app (ir_a llega en un solo paso; úsalo solo si es la pantalla que "
-                         "la tarea necesita): " + " · ".join(f"«{d}»" for d in self.destinations))
         parts.append("Historial:\n" + self._history())
         if self.table.rows:
             parts.append(f"Tabla acumulada: {len(self.table.rows)} filas únicas · columnas: {', '.join(self.table.headers)}")
@@ -446,49 +437,6 @@ class Agent:
             return "esperar"
         return ""
 
-    def route(self) -> list[tuple[str, int, int]]:
-        """Camino con que empezó esta tarea: los primeros clics sin efecto ni datos que cambiaron la pantalla."""
-        path = []
-        for s in self.steps:
-            m = re.match(r"clic en «(.+?)»: la pantalla cambió", s.result) if s.tool == "clic" else None
-            if not m or is_effectful(m.group(1)) or re.search(r"\d", m.group(1)) or s.n not in self.click_at:
-                break
-            path.append((" ".join(m.group(1).lower().split()), *self.click_at[s.n]))
-        return path
-
-    @staticmethod
-    def _find_label(obs: Observation, label: str, x: int, y: int):
-        same = [b for b in obs.boxes if " ".join(b.text.lower().split()) == label]
-        return min(same, key=lambda b: abs(b.cx - x) + abs(b.cy - y)) if same else None
-
-    async def _go_to(self, args: dict, obs: Observation) -> Outcome | None:
-        wanted = " ".join(str(args.get("destino", "")).lower().strip(" «»\"'").split())
-        path = self.destinations.get(wanted)
-        if not path:
-            self._log("ir_a", args, f"«{wanted}» no es un destino conocido ({', '.join(self.destinations) or 'ninguno'}): "
-                                    "navega con clic")
-            return None
-        done, out = [], None
-        for i, (label, x, y) in enumerate(path):
-            box = self._find_label(obs, label, x, y)
-            if box is None and any(self._find_label(obs, *later) for later in path[i + 1:]):
-                continue  # ese paso ya no hace falta (p. ej. un aviso que esta vez no apareció)
-            if box is None or is_effectful(box.text):
-                break
-            out = await self.act.click(box.cx, box.cy)
-            if not out.changed:
-                break
-            done.append(box.text)
-            obs = await observe(out.frame, prev=obs)
-        reached = bool(done) and " ".join(done[-1].lower().split()) == wanted
-        if not reached:  # el camino dejó de servir (la app cambió): se olvida y se vuelve a aprender
-            self.memory.forget_destination(self.app, wanted)
-            self.destinations.pop(wanted, None)
-        trail = " → ".join(f"«{d}»" for d in done) or "ningún clic"
-        self._log("ir_a", args, f"llegué a «{wanted}» ({trail}): la pantalla cambió" if reached else
-                  f"el camino a «{wanted}» ya no sirve (hice {trail}); navega con clic")
-        return out if out is not None else None
-
     async def _execute(self, task: str, tool: str, args: dict, obs: Observation) -> Outcome | None:
         """Ejecuta una herramienta. Devuelve Outcome si la pantalla pudo cambiar; None si no (herramientas de tabla)."""
         try:
@@ -516,10 +464,7 @@ class Agent:
                     if after is None or is_commit(label) or not opened_commit_step([b.text for b in obs.boxes], [b.text for b in after.boxes]):
                         self.policy.record_effect(label or f"{x},{y}", len(self.steps) + 1, out.changed, x, y)
                 self._log(tool, args, f"clic en «{label or f'{x},{y}'}»: {out.summary}")
-                self.click_at[len(self.steps)] = (x, y)
                 return out
-            if tool == "ir_a":
-                return await self._go_to(args, obs)
             if tool == "escribir":
                 out = await self.act.type_into(int(args["x"]), int(args["y"]), str(args["texto"]))
                 self._log(tool, args, out.summary)
