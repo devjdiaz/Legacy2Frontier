@@ -117,3 +117,25 @@ Las decisiones de diseño D1–D8 están en `docs/decisiones.md`.
   que "Aplicar" y volver a la lista SÍ cuenta). Lo escrito y verificado se reporta como se tecleó, marcando la
   lectura distinta como ruido del OCR.
 - **Resultado**: 5/5 sobre v4.2 ($0.25 las cinco tareas), desplegado 16:18.
+
+## Post-entrega · Cascada de modelos, mapa de acciones inútiles y homónimos en código
+- **Evidencia (examen 2, 51 tareas)**: el modelo fuerte hizo el 21 % de los pasos y se llevó el 79 % del costo:
+  entraba a manejar 3 pasos cada vez que el barato se atascaba (86 veces: 43 bucles, 33 "3 pasos sin cambio",
+  10 vetos). El juez casi no gastaba. Cerca de la mitad del tiempo de un paso es esperar a que la pantalla cambie,
+  no pensar (Jev 0,2 s, Haiku 1,9 s, Sonnet 5–6 s por llamada; un paso, 5–7 s).
+- **Decisión 1, cascada código → Jev → Haiku → Sonnet**: ante atasco, el fuerte da un solo paso como supervisor y
+  deja un plan que el barato sigue; en la banda de duda del juez, un botón de confirmar en una tarea de cambio lo
+  aprueba primero el barato si está seguro (los vetos y las acciones raras siempre los decide el fuerte). Cada
+  llamada registra su escalón, costo, segundos y tokens de razonamiento (`by_role`).
+- **Decisión 2, homónimos en código**: en el banco, el agente escribió "hay dos clientes con ese nombre", modificó
+  uno igual y reportó que era el único. La ambigüedad vivía en el prompt. Ahora, antes de cada acción con efecto en
+  tareas de modificar o eliminar, Jev responde si más de un registro coincide sin un dato que los distinga (con
+  las notas del agente y el último listado visto); si sí, se veta y se pide nombrar cada registro.
+- **Decisión 3, mapa de la app**: cada pantalla se reconoce por sus rótulos; una acción de navegación que en esa
+  pantalla nunca cambió nada (2 intentos) se avisa al modelo solo en esa pantalla y se olvida si vuelve a
+  funcionar. Una "ruta automática" (repetir los primeros clics comunes de las últimas tareas) se probó y se
+  descartó: llevó una consulta al módulo equivocado (60 s → 189 s) y se reforzaba sola. A dónde ir lo decide el
+  modelo.
+- **Resultado (banco local; 1–2 corridas, muestra chica)**: costo por tarea E1–E5 $0.047 → $0.027–0.036 y
+  P01–P10 $0.036 → $0.028; escaladas por tarea 2.0 → 0.8–1.2; tiempo sin cambio (≈ 87–96 s). Acciones indebidas:
+  antes 1 (homónimos en E5), después 0 en 22 tareas. P06 y P09 siguen fallando por respuesta, igual que antes.
