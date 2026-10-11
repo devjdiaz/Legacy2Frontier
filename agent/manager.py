@@ -5,6 +5,8 @@ como acción destructiva en la tarea siguiente. Por eso: timeout duro, cancelaci
 nueva al mismo escritorio, y la conexión VNC se cierra siempre al salir.
 """
 import asyncio
+import ctypes
+import gc
 import logging
 import os
 import time
@@ -34,6 +36,16 @@ def describe_error(exc: Exception) -> str:
     if "se cayó" in text:
         return "Se perdió la conexión con el escritorio a mitad de la tarea; el resultado no se pudo verificar."
     return f"Error interno del agente ({name}); la tarea no se pudo verificar."
+
+
+def release_memory() -> None:
+    """Devuelve al sistema la memoria de la tarea que terminó. Sin esto el proceso retenía memoria entre tareas
+    (capturas, OCR) y el contenedor de 1 GB moría cada ~25 min con la tarea en curso adentro."""
+    gc.collect()
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)  # solo Linux (glibc); en otros sistemas no hace falta
+    except (OSError, AttributeError):
+        pass
 
 
 class TaskManager:
@@ -78,3 +90,4 @@ class TaskManager:
         if estado not in FINAL_STATES:
             estado = "fallida"
         self._store.finish(task_id, estado, redact_secret_like(redact(resumen, [password, *self._extra_secrets])))
+        release_memory()

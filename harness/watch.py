@@ -16,10 +16,14 @@ if os.path.exists(OUT):
 idle_since = time.time()
 while time.time() - idle_since < 1200:  # termina tras 20 min sin tareas nuevas
     try:
-        items = httpx.get(f"{URL}/traces?limit=30", timeout=30,
+        items = httpx.get(f"{URL}/traces?limit=8", timeout=30,
                           headers={"Authorization": f"Bearer {os.environ['AGENT_TOKEN']}"}).json()
     except Exception as exc:
         print("error consultando /traces:", type(exc).__name__, flush=True)
+        time.sleep(20)
+        continue
+    if not isinstance(items, list):  # p. ej. el servicio reiniciándose: se reintenta
+        print("respuesta inesperada de /traces:", str(items)[:120], flush=True)
         time.sleep(20)
         continue
     for t in reversed(items):
