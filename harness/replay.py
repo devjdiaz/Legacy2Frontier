@@ -1,12 +1,14 @@
 """Replay gamificado de trazas reales del agente, para el pitch (página HTML autocontenida).
 
-Uso:  .venv/bin/python -m harness.replay runs/demo
+Uso:  .venv/bin/python -m harness.replay runs/demo [avatar.png]
 
 - Lee 4 trazas fijas de la app de práctica v4.2 (ver ESCENARIOS).
 - Convierte cada captura NNN.png a JPEG en <salida>/img/<escenario>/NNN.jpg (1024 px, calidad 70).
 - Escribe <salida>/index.html (documento completo, para abrir localmente) y <salida>/artifact.html
   (mismo contenido sin doctype/html/head/body, para publicarlo como Artifact con img/ al lado).
 - Todo texto que sale de las trazas pasa por agent.safety.redact_secret_like.
+- Avatar del agente (opcional): de una imagen 16:9 con el personaje centrado se recorta el busto en
+  <salida>/img/avatar.jpg. Sin ella se conserva el avatar que ya haya en la carpeta.
 """
 import json
 import re
@@ -322,12 +324,23 @@ def procesar(esc: dict, salida: Path) -> dict:
     }
 
 
+def recortar_avatar(origen: Path, destino: Path) -> None:
+    """Busto del personaje (centrado en una imagen 16:9) a 312×372 px: 3 veces el tamaño en pantalla."""
+    img = Image.open(origen).convert("RGB")
+    w, h = img.size
+    busto = img.crop((round(w * 0.32), round(h * 0.056), round(w * 0.68), round(h * 0.817)))
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    busto.resize((312, 372), Image.LANCZOS).save(destino, quality=86, optimize=True, progressive=True)
+
+
 def main(argv: list[str]) -> int:
-    if len(argv) != 1:
+    if len(argv) not in (1, 2):
         print(__doc__)
         return 2
     salida = Path(argv[0])
     salida.mkdir(parents=True, exist_ok=True)
+    if len(argv) == 2:
+        recortar_avatar(Path(argv[1]), salida / "img" / "avatar.jpg")
     datos = redactar({"escenarios": [procesar(e, salida) for e in ESCENARIOS]})
     js = (json.dumps(datos, ensure_ascii=False, separators=(",", ":"))
           .replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026"))
@@ -362,7 +375,7 @@ ESTILO = r"""<style>
   --warn:#fbbf24; --warn-soft:rgba(251,191,36,.13); --on-warn:#3a2600;
   --calm:#38bdf8; --calm-soft:rgba(56,189,248,.14);
   --screen:#030b16; --overlay:rgba(6,16,30,.78); --shadow:0 1px 2px rgba(0,0,0,.45),0 14px 36px rgba(0,0,0,.4);
-  --bot-hi:#dbe7f7; --bot-lo:#9fb6d4; --bot-face:#06101e; --bot-line:#06101e; --white:#ffffff;
+  --avatar-bg:#0a0e1b; --white:#ffffff;
   --radius:16px; --font:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
   --display:'Space Grotesk','Inter',system-ui,sans-serif;
 }
@@ -477,52 +490,44 @@ button{font:inherit;color:inherit}
 .xp-bar{flex:1;height:12px;border-radius:999px;background:var(--surface-2);border:1px solid var(--border);overflow:hidden}
 .xp-fill{height:100%;width:0;border-radius:999px;background:linear-gradient(90deg,var(--accent-strong),var(--accent));transition:width .45s cubic-bezier(.2,.8,.2,1);position:relative}
 .xp-fill::after{content:"";position:absolute;right:0;top:0;bottom:0;width:18px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.6));border-radius:999px}
-/* ---------- Robot + burbuja ---------- */
+/* ---------- Avatar del agente + burbuja (mitad boceto, mitad 3D: de legacy a frontier) ---------- */
 .agent{padding:16px;display:grid;grid-template-columns:104px minmax(0,1fr);gap:14px;align-items:start}
-.bot{width:104px;display:flex;flex-direction:column;align-items:center;gap:6px}
-.bot svg{width:104px;height:auto;overflow:visible}
+.bot{width:104px;display:flex;flex-direction:column;align-items:center;gap:8px}
 .bot-state{font-size:11.5px;font-weight:700;text-align:center;padding:3px 8px;border-radius:999px;background:var(--surface-2);border:1px solid var(--border);white-space:nowrap}
 .bot[data-e="bloqueado"] .bot-state{border-color:var(--danger);color:var(--danger)}
 .bot[data-e="exito"] .bot-state{border-color:var(--accent);color:var(--accent)}
 .bot[data-e="calmado"] .bot-state{border-color:var(--calm);color:var(--calm)}
-.bot .head-g,.bot .shield-g,.bot .halo,.bot .sparks,.bot .eyes-norm{transform-box:fill-box;transform-origin:center}
-.bot .b-head,.bot .b-body{fill:url(#gHead);stroke:var(--bot-line);stroke-width:2.5}
-.bot .b-face{fill:var(--bot-face)}
-.bot .b-eye{fill:var(--accent)}
-.bot .b-eye-l,.bot .b-mouth{stroke:var(--accent);stroke-width:3.4;fill:none;stroke-linecap:round}
-.bot .b-ant{stroke:var(--bot-line);stroke-width:2.5}
-.bot .b-led{fill:var(--warn)}
-.bot .b-core{fill:var(--accent)}
-.bot .b-ear{fill:var(--bot-lo);stroke:var(--bot-line);stroke-width:2}
-.bot .shield-g{opacity:0;transform:scale(.4);transition:.3s cubic-bezier(.3,1.6,.5,1)}
-.bot .b-shield{fill:var(--danger);stroke:var(--white);stroke-width:2.5}
-.bot .b-shield-m{stroke:var(--white);stroke-width:4;stroke-linecap:round;fill:none}
-.bot .halo{opacity:0;fill:none;stroke:var(--calm);stroke-width:3}
-.bot .think circle{fill:var(--muted);opacity:0}
-.bot .sparks{opacity:0}
-.bot .sparks path{stroke:var(--accent);stroke-width:3;stroke-linecap:round}
-.bot .eyes-happy,.bot .eyes-calm,.bot .eyes-flat,.bot .m-happy,.bot .m-flat{display:none}
-.bot[data-e="pensando"] .b-led{animation:blink .7s steps(2) infinite}
-.bot[data-e="pensando"] .eyes-norm{transform:translate(3px,-3px)}
-.bot[data-e="pensando"] .think circle{animation:dots 1.2s infinite}
-.bot[data-e="pensando"] .think circle:nth-child(2){animation-delay:.2s}
-.bot[data-e="pensando"] .think circle:nth-child(3){animation-delay:.4s}
-.bot[data-e="actuando"] .b-led{fill:var(--accent)}
-.bot[data-e="actuando"] .head-g{animation:hop .45s ease-out}
-.bot[data-e="actuando"] .sparks{animation:spark .5s ease-out}
-.bot[data-e="bloqueado"] .b-led{fill:var(--danger)}
-.bot[data-e="bloqueado"] .shield-g{opacity:1;transform:scale(1)}
-.bot[data-e="bloqueado"] .eyes-norm,.bot[data-e="bloqueado"] .m-norm{display:none}
-.bot[data-e="bloqueado"] .eyes-flat,.bot[data-e="bloqueado"] .m-flat{display:inline}
-.bot[data-e="exito"] .b-led{fill:var(--accent)}
-.bot[data-e="exito"] .eyes-norm,.bot[data-e="exito"] .m-norm{display:none}
-.bot[data-e="exito"] .eyes-happy,.bot[data-e="exito"] .m-happy{display:inline}
-.bot[data-e="exito"] .head-g{animation:jump .8s ease-in-out infinite}
-.bot[data-e="calmado"] .b-led{fill:var(--calm)}
-.bot[data-e="calmado"] .eyes-norm{display:none}
-.bot[data-e="calmado"] .eyes-calm{display:inline}
-.bot[data-e="calmado"] .halo{opacity:.9;animation:breathe 2.4s ease-in-out infinite}
-.bot[data-e="calmado"] .head-g{animation:float 2.4s ease-in-out infinite}
+.av{position:relative;width:104px;height:124px}
+.av-frame{position:absolute;inset:0;border-radius:18px;overflow:hidden;background:var(--avatar-bg);border:1.5px solid var(--border);transform-origin:50% 100%;transition:border-color .25s,box-shadow .25s,filter .25s}
+.av-frame img{display:block;width:100%;height:100%;object-fit:cover;-webkit-mask-image:linear-gradient(#000 80%,transparent);mask-image:linear-gradient(#000 80%,transparent)}
+.av-led{position:absolute;top:-4px;left:-4px;width:12px;height:12px;border-radius:50%;background:var(--warn);border:2px solid var(--surface);z-index:2}
+.av-halo{position:absolute;inset:-7px;border-radius:24px;border:2px solid var(--calm);opacity:0;pointer-events:none}
+.av-think{position:absolute;top:-16px;right:-12px;display:flex;align-items:flex-end;gap:3px}
+.av-think i{display:block;border-radius:50%;background:var(--muted);opacity:0}
+.av-think i:nth-child(1){width:6px;height:6px}
+.av-think i:nth-child(2){width:8px;height:8px}
+.av-think i:nth-child(3){width:10px;height:10px}
+.av-sparks{position:absolute;inset:0;width:100%;height:100%;overflow:visible;opacity:0;pointer-events:none}
+.av-sparks path{stroke:var(--accent);stroke-width:3;stroke-linecap:round;fill:none}
+.av-shield{position:absolute;right:-12px;bottom:-10px;width:40px;height:44px;opacity:0;transform:scale(.4);transition:.3s cubic-bezier(.3,1.6,.5,1);z-index:2}
+.av-shield .s{fill:var(--danger);stroke:var(--white);stroke-width:2.5}
+.av-shield .m{stroke:var(--white);stroke-width:4;stroke-linecap:round;fill:none}
+.bot[data-e="pensando"] .av-led{animation:blink .7s steps(2) infinite}
+.bot[data-e="pensando"] .av-frame{animation:float 2.4s ease-in-out infinite}
+.bot[data-e="pensando"] .av-think i{animation:dots 1.2s infinite}
+.bot[data-e="pensando"] .av-think i:nth-child(2){animation-delay:.2s}
+.bot[data-e="pensando"] .av-think i:nth-child(3){animation-delay:.4s}
+.bot[data-e="actuando"] .av-led{background:var(--accent)}
+.bot[data-e="actuando"] .av-frame{border-color:var(--accent);animation:hop .45s ease-out}
+.bot[data-e="actuando"] .av-sparks{animation:spark .5s ease-out}
+.bot[data-e="bloqueado"] .av-led{background:var(--danger)}
+.bot[data-e="bloqueado"] .av-frame{border-color:var(--danger);filter:saturate(.35) brightness(.85);animation:shake .3s 2}
+.bot[data-e="bloqueado"] .av-shield{opacity:1;transform:scale(1)}
+.bot[data-e="exito"] .av-led{background:var(--accent)}
+.bot[data-e="exito"] .av-frame{border-color:var(--accent);box-shadow:0 0 0 4px var(--accent-soft);animation:jump .8s ease-in-out infinite}
+.bot[data-e="calmado"] .av-led{background:var(--calm)}
+.bot[data-e="calmado"] .av-frame{border-color:var(--calm);animation:float 2.4s ease-in-out infinite}
+.bot[data-e="calmado"] .av-halo{opacity:.9;animation:breathe 2.4s ease-in-out infinite}
 @keyframes blink{50%{opacity:.25}}
 @keyframes dots{0%,100%{opacity:.15}50%{opacity:1}}
 @keyframes hop{40%{transform:translateY(-6px)}}
@@ -731,29 +736,14 @@ CUERPO = r"""<svg width="0" height="0" style="position:absolute" aria-hidden="tr
   <aside class="side">
     <section class="card agent" aria-label="Agente">
       <div class="bot" id="bot" data-e="pensando">
-        <svg viewBox="0 0 120 132" aria-hidden="true" focusable="false">
-          <defs><linearGradient id="gHead" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#dbe7f7"/><stop offset="1" stop-color="#9fb6d4"/></linearGradient></defs>
-          <circle class="halo" cx="60" cy="66" r="56"/>
-          <g class="think"><circle cx="98" cy="20" r="3.5"/><circle cx="106" cy="12" r="4.5"/><circle cx="115" cy="3" r="5.5"/></g>
-          <g class="head-g">
-            <line class="b-ant" x1="60" y1="12" x2="60" y2="26"/>
-            <circle class="b-led" cx="60" cy="10" r="6"/>
-            <rect class="b-ear" x="11" y="48" width="8" height="20" rx="4"/><rect class="b-ear" x="101" y="48" width="8" height="20" rx="4"/>
-            <rect class="b-head" x="18" y="26" width="84" height="62" rx="20"/>
-            <rect class="b-face" x="28" y="37" width="64" height="40" rx="13"/>
-            <g class="eyes-norm"><rect class="b-eye" x="41" y="48" width="9" height="13" rx="4.5"/><rect class="b-eye" x="70" y="48" width="9" height="13" rx="4.5"/></g>
-            <g class="eyes-happy"><path class="b-eye-l" d="M40 58 q5 -9 10 0"/><path class="b-eye-l" d="M70 58 q5 -9 10 0"/></g>
-            <g class="eyes-calm"><path class="b-eye-l" d="M40 54 q5 6 10 0"/><path class="b-eye-l" d="M70 54 q5 6 10 0"/></g>
-            <g class="eyes-flat"><path class="b-eye-l" d="M40 56 h10"/><path class="b-eye-l" d="M70 56 h10"/></g>
-            <path class="b-mouth m-norm" d="M51 67 q9 6 18 0"/>
-            <path class="b-mouth m-happy" d="M49 66 q11 10 22 0"/>
-            <path class="b-mouth m-flat" d="M51 69 h18"/>
-            <rect class="b-body" x="36" y="92" width="48" height="32" rx="11"/>
-            <circle class="b-core" cx="60" cy="108" r="5.5"/>
-            <g class="sparks"><path d="M8 100 l-6 -4"/><path d="M8 110 h-7"/><path d="M112 100 l6 -4"/><path d="M112 110 h7"/></g>
-          </g>
-          <g class="shield-g"><path class="b-shield" d="M94 70 l20 7 v16 c0 15 -9 24 -20 28 c-11 -4 -20 -13 -20 -28 v-16z"/><path class="b-shield-m" d="M94 82 v13 M94 103 v1"/></g>
-        </svg>
+        <div class="av" aria-hidden="true">
+          <span class="av-halo"></span>
+          <div class="av-frame"><img src="img/avatar.jpg" alt="" width="312" height="372" decoding="async"></div>
+          <span class="av-led"></span>
+          <span class="av-think"><i></i><i></i><i></i></span>
+          <svg class="av-sparks" viewBox="0 0 104 124" focusable="false"><path d="M-5 58 l-7 -5"/><path d="M-5 70 h-9"/><path d="M109 58 l7 -5"/><path d="M109 70 h9"/></svg>
+          <svg class="av-shield" viewBox="0 0 40 44" focusable="false"><path class="s" d="M20 2 l17 6 v13 c0 12 -7 19 -17 22 c-10 -3 -17 -10 -17 -22 v-13z"/><path class="m" d="M20 12 v12 M20 31 v1"/></svg>
+        </div>
         <span class="bot-state" id="botState">Pensando…</span>
       </div>
       <div class="bubble" id="bubble">
