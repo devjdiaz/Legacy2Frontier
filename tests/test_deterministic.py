@@ -127,3 +127,36 @@ def test_opciones_de_lista_toleran_ocr_pero_no_confunden_valores():
     # la tarea nombra parte de la opción: todas sus palabras deben estar en la opción
     assert set(_words("Dra. Paredes")) <= set(_words("Dra. Marcela Paredes Ortiz"))
     assert not set(_words("Dra. Paredes")) <= set(_words("Dra. Paula Andrea Rojas"))
+
+
+def test_lista_elige_la_opcion_mas_parecida_no_la_mas_cercana():
+    from agent.actions import _best_option
+    from agent.perception import TextBox
+    cerca = TextBox(0, "Ana Gámez Ruiz", 100, 140, 200, 150, 0.9)   # justo debajo del control
+    exacta = TextBox(1, "Ana Gómez Ruiz", 100, 160, 200, 170, 0.9)  # más abajo
+    assert _best_option([cerca, exacta], "ana gómez ruiz", y=131) is exacta
+
+
+def test_recorte_por_ancho_no_confunde_una_opcion_mas_corta():
+    from agent.actions import _truncated
+    assert _truncated("Dra. Paula Andrea Roj", "Dra. Paula Andrea Rojas Peña")  # cortada a mitad de palabra
+    assert _truncated("Consulta de medicina…", "Consulta de medicina general")   # termina en «…»
+    assert not _truncated("Pendiente", "Pendiente de pago")                       # es otra opción
+    assert not _truncated("Dr. Juan Pérez", "Dr. Juan Pérez Gómez")
+
+
+def test_botones_de_confirmar_siempre_cuentan_como_hechos():
+    from agent.policy import is_commit
+    assert is_commit("Guardar") and is_commit("Aplicar") and is_commit("Aceptar")
+    assert not is_commit("Crear cliente") and not is_commit("Registrar pago") and not is_commit("Siguiente")
+
+
+def test_rendirse_tras_un_cambio_aplicado_exige_verificar_una_vez():
+    import asyncio
+    from agent.policy import EffectRecord, Policy
+    pol = Policy(decider=None, task="Cambia el teléfono de X", kind="actualizar")
+    pol.effects.append(EffectRecord("Aplicar", 5, True, 100, 100))
+    first = asyncio.run(pol.gate_finish("fallida", [], "", ""))
+    second = asyncio.run(pol.gate_finish("fallida", [], "", ""))
+    assert not first.allow and "verifica" in first.message
+    assert second.allow  # solo una vez: si tras verificar sigue fallida, se respeta

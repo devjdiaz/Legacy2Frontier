@@ -255,7 +255,7 @@ class Screen:
 async def connect(url: str, password: str, timeout: float = 20.0):
     """Abre la sesión VNC y la cierra siempre al salir (también si la tarea se cancela)."""
     ws = await asyncio.wait_for(
-        websockets.connect(url, subprotocols=["binary"], max_size=None, open_timeout=timeout),
+        websockets.connect(url, subprotocols=["binary"], max_size=None, open_timeout=timeout, close_timeout=2),
         timeout,
     )
     screen = Screen(ws)

@@ -83,6 +83,7 @@ class TaskManager:
             estado, resumen = "fallida", TIMEOUT_MSG
         except asyncio.CancelledError:
             self._store.finish(task_id, "fallida", CANCEL_MSG)
+            release_memory()
             raise
         except Exception as exc:  # nunca reportar éxito si algo explotó
             log.exception("tarea %s falló", task_id)

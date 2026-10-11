@@ -168,6 +168,12 @@ class Policy:
         self.effects.append(EffectRecord(label, step, confirmed, x, y))
 
     async def gate_finish(self, estado: str, respuesta: list[str], screen_text: str, history: str) -> Verdict:
+        if estado == "fallida" and self.kind in MUTATING and any(e.confirmed for e in self.effects) \
+                and self.finish_pushbacks == 0:  # aplicó un cambio y se rinde sin mirar si quedó
+            self.finish_pushbacks += 1
+            return Verdict(False, "Ya aplicaste un cambio y la pantalla reaccionó. Antes de terminar como fallida, "
+                                  "verifica en pantalla si quedó aplicado (reabre o busca el registro): si quedó como pide "
+                                  "la tarea, termina terminada; si no, explica qué falta.")
         if estado != "terminada":
             return Verdict(True)
         if self.kind == "consultar" and not respuesta:
@@ -197,3 +203,8 @@ def opened_commit_step(before: list[str], after: list[str]) -> bool:
                 out.add(" ".join(words))
         return out
     return bool(commits(after) - commits(before))
+
+
+def is_commit(label: str | None) -> bool:
+    """¿Es un botón que confirma lo que hay en un formulario o diálogo (guardar, aplicar, aceptar…)?"""
+    return any(w in COMMIT_WORDS for w in re.findall(r"[a-záéíóúñü]+", _norm(label or "")))

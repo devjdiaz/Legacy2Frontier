@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from PIL import Image
 
 from .perception import Observation, TextBox, group_lines, norm, observe, read_region
+from .policy import is_effectful
 from .vnc import Screen
 
 
@@ -47,6 +48,20 @@ def _same_option(seen: str, wanted: str) -> bool:
     if re.sub(r"\D", "", a) != re.sub(r"\D", "", b):
         return False
     return len(b) >= 5 and difflib.SequenceMatcher(None, a, b).ratio() >= 0.85
+
+
+def _best_option(matches: list[TextBox], wanted: str, y: int) -> TextBox:
+    """La opción MÁS PARECIDA a la pedida (no la más cercana): con «Ana Gámez» y «Ana Gómez» gana la exacta."""
+    return max(matches, key=lambda b: (difflib.SequenceMatcher(None, norm(b.text).lower(), wanted).ratio(), -abs(b.cy - y)))
+
+
+def _truncated(seen: str, option: str) -> bool:
+    """¿`seen` es `option` cortada por el ancho del control? Solo si el corte cae a mitad de palabra o termina en «…»:
+    «Pendiente» NO es un recorte de «Pendiente de pago» (es otra opción)."""
+    cut, full = norm(seen).lower().rstrip(".… "), norm(option).lower()
+    if len(cut) < 8 or not full.startswith(cut) or len(full) == len(cut):
+        return False
+    return full[len(cut)].isalnum() or seen.rstrip().endswith(("…", "..."))
 
 
 def _field_text(boxes: list[TextBox], x: int, y: int) -> str:
@@ -169,7 +184,8 @@ class Actuator:
         listed = [b for b in obs.boxes if b.cy != y and abs(b.cx - x) < 400 and abs(b.cy - y) < 520 and not any(
             o.text == b.text and abs(o.cx - b.cx) <= 8 and abs(o.cy - b.cy) <= 8 for o in shown.boxes)]
         matches = [b for b in listed if _same_option(b.text, wanted)] or [
-            b for b in obs.boxes if norm(b.text).lower() == wanted and abs(b.cx - x) < 400 and b.cy != y]
+            b for b in obs.boxes if norm(b.text).lower() == wanted and abs(b.cx - x) < 400 and b.cy != y
+            and abs(b.cy - y) < 520 and not is_effectful(b.text)]  # nunca un botón con efecto de otro diálogo
         if not matches:  # la tarea suele nombrar parte de la opción («Dra. Paredes» → «Dra. Ana Paredes Ruiz»)
             words = set(_words(wanted))
             partial = [b for b in listed if words and words <= set(_words(b.text))]
@@ -180,7 +196,7 @@ class Actuator:
                                False, self.screen.frame.copy())
             matches = partial
         if matches:
-            target = min(matches, key=lambda b: abs(b.cy - y))
+            target = _best_option(matches, wanted, y)
             if not _same_option(target.text, wanted):
                 option = target.text  # coincidencia parcial: se verifica contra el texto real de la opción
             before = self.screen.frame.copy()
@@ -213,7 +229,7 @@ class Actuator:
     async def _verify_option(self, x: int, y: int, option: str) -> tuple[bool, str, Image.Image]:
         """Como _verify_text, pero acepta el nombre cortado por el ancho del control («Dra. Paula Andrea Roj»)."""
         ok, seen, frame = await self._verify_text(x, y, option, timeout=4.0)
-        if not ok and len(norm(seen)) >= 8 and norm(option).lower().startswith(norm(seen).lower().rstrip(".… ")):
+        if not ok and _truncated(seen, option):
             ok = True
         return ok, seen, frame
 

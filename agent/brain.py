@@ -13,9 +13,9 @@ import unicodedata
 from dataclasses import dataclass, field
 
 from .actions import Actuator, Outcome, label_at
-from .llm import FAST_MODEL, LLM, STRONG_MODEL, image_part
+from .llm import FAST_MODEL, LLM, STRONG_MODEL, LLMError, image_part
 from .perception import Observation, norm, observe, parse_table
-from .policy import Policy, is_effectful, opened_commit_step
+from .policy import Policy, Verdict, is_commit, is_effectful, opened_commit_step
 
 log = logging.getLogger(__name__)
 
@@ -292,7 +292,11 @@ class Agent:
                   "fechas y valores deben coincidir EXACTOS (AB0 y ABO son distintos). Si algún valor no coincide, no lo "
                   "permitas y di cuál corregir.\n"
                   'Responde SOLO JSON {"permitir": true|false, "motivo": "frase corta"}.')
-        msg = await self.llm.chat(STRONG_MODEL, [{"role": "user", "content": prompt}], max_tokens=STRONG_ROOM)
+        try:  # acotado: con reintentos del proveedor podía tardar minutos o tumbar la tarea con un error
+            msg = await asyncio.wait_for(self.llm.chat(STRONG_MODEL, [{"role": "user", "content": prompt}], max_tokens=STRONG_ROOM),
+                                         timeout=max(5.0, min(45.0, self._remaining() - 10)))
+        except (TimeoutError, LLMError):
+            return None, ""
         text = msg.get("content") or ""
         decision = re.search(r'"permitir"\s*:\s*(true|false)', text)
         motive = re.search(r'"motivo"\s*:\s*"((?:[^"\\]|\\.)*)', text)  # tolera comillas escapadas y cortes
@@ -327,7 +331,7 @@ class Agent:
             if self.strong_left > 0:
                 self.strong_left -= 1
                 self.model = STRONG_MODEL
-            elif self.no_change_streak >= 3 or self.vetoes > self.vetoes_seen:
+            elif (self.no_change_streak >= 3 or self.vetoes > self.vetoes_seen) and remaining > 60:  # el fuerte es lento
                 self.vetoes_seen = self.vetoes
                 self.no_change_streak = 0
                 self.strong_left = 2
@@ -337,7 +341,7 @@ class Agent:
             tool, args = await self._decide(task, obs, warnings, force_finish=force)
             # en clics y desplazamientos la huella de la pantalla entra en la firma («Siguiente» en otra página no es un
             # bucle); escribir, esperar o contar lo mismo una y otra vez sí lo es aunque la pantalla parpadee
-            screen_key = obs.digest if tool in ("clic", "desplazar") else ""
+            screen_key = obs.digest if tool in ("clic", "desplazar", "tecla") else ""
             signature = (tool, json.dumps({k: v for k, v in args.items() if k != "razon"}, sort_keys=True, ensure_ascii=False), screen_key)
             self.recent.append(signature)
             # bucle: la misma acción 3 veces en los últimos 6 pasos (aunque se intercale con otras)
@@ -350,7 +354,7 @@ class Agent:
             if tool == "terminar":
                 estado = args.get("estado", "fallida")
                 respuesta = [str(v) for v in (args.get("respuesta") or [])]
-                verdict = await self.policy.gate_finish(estado, respuesta, obs.plain_text(), self._history())
+                verdict = Verdict(True) if force else await self.policy.gate_finish(estado, respuesta, obs.plain_text(), self._history())
                 if not verdict.allow and not force:
                     self.vetoes += 1
                     self._log(tool, args, f"RECHAZADO por la política: {verdict.message}")
@@ -384,7 +388,9 @@ class Agent:
                 if effectful:
                     after = await observe(out.frame, prev=obs) if out.changed else None
                     # abrir un formulario (aparece su botón de confirmar) no es el cambio: se puede volver a abrir
-                    if after is None or not opened_commit_step([b.text for b in obs.boxes], [b.text for b in after.boxes]):
+                    # un botón de confirmar (guardar, aplicar, aceptar…) SIEMPRE cuenta: si al guardar aparece un aviso
+                    # con «Aceptar», no se puede volver a guardar (duplicaría)
+                    if after is None or is_commit(label) or not opened_commit_step([b.text for b in obs.boxes], [b.text for b in after.boxes]):
                         self.policy.record_effect(label or f"{x},{y}", len(self.steps) + 1, out.changed, x, y)
                 self._log(tool, args, f"clic en «{label or f'{x},{y}'}»: {out.summary}")
                 return out
