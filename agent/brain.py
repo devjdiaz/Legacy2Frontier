@@ -261,13 +261,14 @@ class Agent:
         if force_finish:
             messages[-1]["content"][0]["text"] += "\n\nSE ACABA EL TIEMPO: llama ahora la herramienta terminar con lo que hayas verificado."
         room = STRONG_ROOM if self.model == STRONG_MODEL else 700
+        role = "escalada" if self.model == STRONG_MODEL else "actuar"
         msg = await self.llm.chat(self.model, messages, tools=TOOLS, max_tokens=room,
-                                  tool_choice=TERMINAR_ONLY if force_finish else "required")
+                                  tool_choice=TERMINAR_ONLY if force_finish else "required", role=role)
         calls = msg.get("tool_calls") or []
         if not calls:  # modelos sin tool_choice forzado: se insiste una vez
             messages += [{"role": "assistant", "content": msg.get("content") or "…"},
                          {"role": "user", "content": "Responde llamando exactamente UNA herramienta."}]
-            msg = await self.llm.chat(self.model, messages, tools=TOOLS, tool_choice="auto", max_tokens=room)
+            msg = await self.llm.chat(self.model, messages, tools=TOOLS, tool_choice="auto", max_tokens=room, role=role)
             calls = msg.get("tool_calls") or []
         if not calls:
             return "nada", {"razon": (msg.get("content") or "")[:200]}
@@ -293,7 +294,7 @@ class Agent:
                   "permitas y di cuál corregir.\n"
                   'Responde SOLO JSON {"permitir": true|false, "motivo": "frase corta"}.')
         try:  # acotado: con reintentos del proveedor podía tardar minutos o tumbar la tarea con un error
-            msg = await asyncio.wait_for(self.llm.chat(STRONG_MODEL, [{"role": "user", "content": prompt}], max_tokens=STRONG_ROOM),
+            msg = await asyncio.wait_for(self.llm.chat(STRONG_MODEL, [{"role": "user", "content": prompt}], max_tokens=STRONG_ROOM, role="juez"),
                                          timeout=max(5.0, min(45.0, self._remaining() - 10)))
         except (TimeoutError, LLMError):
             return None, ""

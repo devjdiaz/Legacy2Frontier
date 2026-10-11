@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
-from agent.runner import run_with_stats  # noqa: E402
+from agent.runner import RunStats, run_with_stats  # noqa: E402
 
 BASE = os.environ["DESKTOP_URL"].rstrip("/")
 WSS = "wss://" + BASE.removeprefix("https://") + "/websockify"
@@ -86,19 +86,20 @@ async def main() -> None:
             case = json.load(open(path, encoding="utf-8"))
             await reset(http)
             t0 = time.time()
+            stats = None if args.url else RunStats()  # se llena aunque la tarea se corte por tiempo
             try:
                 if args.url:
                     estado, resumen, stats = await remote(http, args.url, args.token, case["instruccion"])
                 else:
-                    estado, resumen, stats = await asyncio.wait_for(run_with_stats(case["instruccion"], WSS, PASSWORD), 280)
+                    estado, resumen, stats = await asyncio.wait_for(run_with_stats(case["instruccion"], WSS, PASSWORD, stats), 280)
             except Exception as exc:
-                estado, resumen, stats = "fallida", f"ERROR {type(exc).__name__}: {exc}", None
+                estado, resumen = "fallida", f"ERROR {type(exc).__name__}: {exc}"
             check = (await http.post(f"{BASE}/__check", headers=HEADERS, json=case, timeout=60)).json()
             results = evaluate(case, estado, resumen, check)
             ok = all(r for _, r in results)
             row = {"id": case["id"], "ok": ok, "estado": estado, "resumen": resumen, "segundos": round(time.time() - t0, 1),
                    "costo": round(stats.cost, 4) if stats else None, "pasos": stats.steps if stats else None,
-                   "traza": stats.trace_dir if stats else None, "checks": results}
+                   "traza": stats.trace_dir if stats else None, "por_rol": stats.by_role if stats else {}, "checks": results}
             report.append(row)
             mark = "✅" if ok else "❌"
             print(f"{mark} {case['id']} [{case['nivel']}] {row['segundos']}s ${row['costo']} {row['pasos']} pasos → {estado}")
@@ -108,6 +109,14 @@ async def main() -> None:
                     print(f"     ✗ {name}")
     passed = sum(r["ok"] for r in report)
     print(f"\n{passed}/{len(report)} correctas · costo total ${sum(r['costo'] or 0 for r in report):.3f}")
+    roles: dict[str, dict] = {}
+    for r in report:  # costo y tiempo por escalón de la cascada (jev, actuar, escalada, juez…)
+        for name, v in (r.get("por_rol") or {}).items():
+            acc = roles.setdefault(name, {"llamadas": 0, "costo": 0.0, "segundos": 0.0})
+            for k in acc:
+                acc[k] += v.get(k, 0)
+    for name, v in sorted(roles.items(), key=lambda kv: -kv[1]["costo"]):
+        print(f"  {name:13} {v['llamadas']:4} llamadas · ${v['costo']:.3f} · {v['segundos']:.0f} s")
     os.makedirs("runs", exist_ok=True)
     out = os.path.join("runs", f"harness-{time.strftime('%Y%m%d-%H%M%S')}.json")
     json.dump(report, open(out, "w", encoding="utf-8"), ensure_ascii=False, indent=1)

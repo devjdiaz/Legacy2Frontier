@@ -10,6 +10,7 @@ import io
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 
 import httpx
@@ -34,11 +35,18 @@ class Usage:
     cost: float = 0.0
     calls: int = 0
     by_model: dict[str, float] = field(default_factory=dict)
+    # por escalón de la cascada (jev, actuar, escalada, juez…): llamadas, costo, segundos y tokens de razonamiento
+    by_role: dict[str, dict] = field(default_factory=dict)
 
-    def add(self, model: str, cost: float) -> None:
+    def add(self, model: str, cost: float, role: str = "", seconds: float = 0.0, reasoning: int = 0) -> None:
         self.cost += cost
         self.calls += 1
         self.by_model[model] = self.by_model.get(model, 0.0) + cost
+        r = self.by_role.setdefault(role or model, {"llamadas": 0, "costo": 0.0, "segundos": 0.0, "razonamiento": 0})
+        r["llamadas"] += 1
+        r["costo"] += cost
+        r["segundos"] += seconds
+        r["razonamiento"] += reasoning
 
 
 def image_part(img: Image.Image) -> dict:
@@ -58,12 +66,13 @@ class LLM:
         self._http = http
 
     async def chat(self, model: str, messages: list[dict], tools: list[dict] | None = None,
-                   tool_choice: str | dict | None = None, max_tokens: int = 700) -> dict:
+                   tool_choice: str | dict | None = None, max_tokens: int = 700, role: str = "") -> dict:
         body = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0}
         if tools:
             body["tools"] = tools
             body["tool_choice"] = "auto" if model in _NO_FORCED_TOOLS else (tool_choice or "required")
         last: Exception | None = None
+        started = time.monotonic()
         for attempt in range(4):
             try:
                 r = await self._http.post(OPENROUTER_URL, json=body, timeout=60,
@@ -81,7 +90,9 @@ class LLM:
                 data = r.json()
                 if "choices" not in data:
                     raise LLMError(f"respuesta sin choices: {str(data)[:200]}")
-                self._usage.add(model, float((data.get("usage") or {}).get("cost") or 0))
+                usage = data.get("usage") or {}
+                reasoning = (usage.get("completion_tokens_details") or {}).get("reasoning_tokens") or 0
+                self._usage.add(model, float(usage.get("cost") or 0), role, time.monotonic() - started, int(reasoning))
                 return data["choices"][0]["message"]
             except (httpx.TimeoutException, httpx.TransportError) as exc:
                 last = exc
@@ -112,11 +123,13 @@ class Decider:
 
     async def _jev(self, state: str, questions: dict[str, dict]) -> dict:
         body = {"state": state[:60000], "model": "jev-latest", "questions": questions}
+        started = time.monotonic()
         r = await self._http.post(JEV_URL, json=body, timeout=8,
                                   headers={"Authorization": f"Bearer {self._key}"})
         r.raise_for_status()
         data = r.json()
-        self._usage.add("jev", (data.get("usage") or {}).get("input_tokens", 0) * JEV_PRICE_PER_INPUT_TOKEN)
+        self._usage.add("jev", (data.get("usage") or {}).get("input_tokens", 0) * JEV_PRICE_PER_INPUT_TOKEN,
+                        "jev", time.monotonic() - started)
         out: dict = {}
         for name, ans in data["answers"].items():
             if ans["type"] == "noul":
@@ -135,7 +148,7 @@ class Decider:
                 opts = ", ".join(f'"{k}" ({v})' for k, v in q["criteria"].items())
                 spec.append(f'- "{name}": una de [{opts}] — {q["instructions"]}')
         prompt = (f"Estado:\n{state[:20000]}\n\nResponde SOLO un objeto JSON con estas claves:\n" + "\n".join(spec))
-        msg = await self._llm.chat(FAST_MODEL, [{"role": "user", "content": prompt}], max_tokens=300)
+        msg = await self._llm.chat(FAST_MODEL, [{"role": "user", "content": prompt}], max_tokens=300, role="jev-respaldo")
         text = msg.get("content") or "{}"
         match = re.search(r"\{.*\}", text, re.S)
         data = json.loads(match.group(0)) if match else {}

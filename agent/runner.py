@@ -28,6 +28,7 @@ class RunStats:
     cost: float = 0.0
     steps: int = 0
     by_model: dict = field(default_factory=dict)
+    by_role: dict = field(default_factory=dict)
     trace_dir: str = ""
     app: str = ""
     kind: str = ""
@@ -42,7 +43,7 @@ async def _learn(memory: AppMemory, llm: LLM, app: str, kind: str, tarea: str, e
             memory.remember(app, kind, tarea, agent.steps, seconds)
         if time_left > 6:
             prompt = LESSONS_PROMPT % (tarea, f"{estado}: {resumen}", agent._history(last=40))
-            msg = await asyncio.wait_for(llm.chat(FAST_MODEL, [{"role": "user", "content": prompt}], max_tokens=300), timeout=5)
+            msg = await asyncio.wait_for(llm.chat(FAST_MODEL, [{"role": "user", "content": prompt}], max_tokens=300, role="aprender"), timeout=5)
             memory.add_lessons(app, parse_lessons(msg.get("content") or ""))
     except Exception as exc:  # aprender es opcional: jamás afecta el resultado de la tarea
         log.warning("no se pudo guardar la memoria: %s", type(exc).__name__)
@@ -53,13 +54,14 @@ async def run(tarea: str, url: str, password: str) -> tuple[str, str]:
     return estado, resumen
 
 
-async def run_with_stats(tarea: str, url: str, password: str) -> tuple[str, str, RunStats]:
+async def run_with_stats(tarea: str, url: str, password: str, stats: RunStats | None = None) -> tuple[str, str, RunStats]:
+    """`stats` se puede pasar desde fuera para conservar costo y tiempos aunque la tarea se cancele por tiempo."""
     settings = load()
     loop = asyncio.get_running_loop()
     started = loop.time()
     deadline = started + settings.task_timeout_s - SAFETY_MARGIN_S
     usage = Usage()
-    stats = RunStats()
+    stats = stats if stats is not None else RunStats()
     slug = re.sub(r"[^a-z0-9]+", "-", tarea.lower())[:40].strip("-")
     trace_dir = os.path.join(os.environ.get("TRACE_DIR", "runs"), f"{time.strftime('%Y%m%d-%H%M%S')}-{slug}")
     os.makedirs(trace_dir, exist_ok=True)
@@ -107,6 +109,7 @@ async def run_with_stats(tarea: str, url: str, password: str) -> tuple[str, str,
         stats.seconds = loop.time() - started
         stats.cost = usage.cost
         stats.by_model = dict(usage.by_model)
+        stats.by_role = {k: dict(v) for k, v in usage.by_role.items()}
     with open(os.path.join(trace_dir, "result.json"), "w", encoding="utf-8") as f:
         json.dump({"tarea": tarea, "estado": estado, "resumen": resumen, **asdict(stats)}, f, ensure_ascii=False, indent=1)
     return estado, resumen, stats
