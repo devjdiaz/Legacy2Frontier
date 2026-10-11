@@ -218,6 +218,7 @@ class Agent:
         self.memory = memory  # mapa de la app aprendido en tareas anteriores (pantallas, acciones que no sirven, rutas)
         self.app = app
         self._screen_ids: dict[str, int] = {}
+        self.last_listing = ""  # último listado visto: con él la política detecta registros homónimos
         self.llm = llm
         self.policy = policy
         self.act = actuator
@@ -236,12 +237,12 @@ class Agent:
     def _remaining(self) -> float:
         return self.deadline - asyncio.get_running_loop().time()
 
-    def _history(self, last: int = 14) -> str:
+    def _history(self, last: int = 14, reasons: bool = False) -> str:
         if not self.steps:
             return "(todavía nada)"
         lines = []
         for s in self.steps[-last:]:
-            args = {k: v for k, v in s.args.items() if k != "razon"}
+            args = {k: v for k, v in s.args.items() if reasons or k != "razon"}
             lines.append(f"p{s.n} {s.tool} {json.dumps(args, ensure_ascii=False)} → {s.result}")
         return "\n".join(lines)
 
@@ -351,6 +352,9 @@ class Agent:
             if remaining < 8:
                 return "fallida", "Se agotó el tiempo antes de completar y verificar la tarea."
             warnings = []
+            table = parse_table(obs)
+            if table and table.rows:
+                self.last_listing = "\n".join(" | ".join(r) for r in [table.headers, *table.rows[:25]])
             inert = self.memory.inert(self.app, self._screen(obs)) if self.memory else []
             if inert:
                 warnings.append("APRENDIDO en esta misma pantalla (en esta tarea o en anteriores): " + "; ".join(inert)
@@ -553,7 +557,9 @@ class Agent:
         return last
 
     async def _allowed(self, task: str, obs: Observation, label: str, reason: str, x: int = -1000, y: int = -1000) -> bool:
-        verdict = await self.policy.gate_effect(label, reason, self._history(), obs.plain_text(), x, y)
+        seen = (f"Notas del agente en sus pasos:\n{self._history(reasons=True)}\n\n"
+                f"Último listado visto:\n{self.last_listing or '(ninguno)'}")
+        verdict = await self.policy.gate_effect(label, reason, self._history(), obs.plain_text(), x, y, seen=seen)
         if verdict.escalate:
             allowed, motive = await self._judge(task, obs, label, reason)
             if allowed is None:  # el revisor no respondió: decide la puntuación de la política, no un veto a ciegas

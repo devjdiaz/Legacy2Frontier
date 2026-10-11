@@ -201,3 +201,23 @@ def test_ruta_aprendida_es_lo_comun_a_todas_las_ultimas_tareas_y_sin_efectos_ni_
     assert mem.common_route("app") == []  # una sola tarea no basta
     mem.add_route("app", ["entendido", "ventas", "clientes"])
     assert mem.common_route("app") == ["entendido", "ventas"]
+
+
+def test_homonimos_vetan_cualquier_cambio_en_tareas_de_modificar():
+    import asyncio
+    from agent.policy import Policy
+
+    class FakeJev:  # responde como Jev: la pregunta de ambigüedad dice que hay dos registros iguales
+        def __init__(self):
+            self.asked = []
+
+        async def ask(self, state, questions):
+            self.asked.append(set(questions))
+            return {"ambiguous": 0.95, "scope": 0.99, "from_screen": 0.0}
+
+    jev = FakeJev()
+    pol = Policy(decider=jev, task="Cambia el teléfono de Ana Torres", kind="actualizar")
+    v = asyncio.run(pol.gate_effect("Aplicar", "aplicar", "", "", seen="Último listado visto:\nCL-1 | Ana Torres\nCL-2 | Ana Torres"))
+    assert not v.allow and "más de un registro" in v.message and jev.asked[0] == {"ambiguous"}
+    crear = Policy(decider=jev, task="Registra a Ana Torres", kind="crear")
+    assert asyncio.run(crear.gate_effect("Aplicar", "aplicar", "", "", seen="x")).allow  # crear no pregunta ambigüedad
