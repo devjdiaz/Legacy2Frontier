@@ -42,6 +42,8 @@ async def _learn(memory: AppMemory, llm: LLM, app: str, kind: str, tarea: str, e
     try:
         if estado == "terminada":
             memory.remember(app, kind, tarea, agent.steps, seconds)
+            if agent.memory:  # el camino de menús hasta donde trabajó: un destino para ir_a en tareas futuras
+                memory.add_destination(app, agent.route())
         if time_left > 6:
             prompt = LESSONS_PROMPT % (tarea, f"{estado}: {resumen}", agent._history(last=40))
             msg = await asyncio.wait_for(llm.chat(FAST_MODEL, [{"role": "user", "content": prompt}], max_tokens=300, role="aprender"), timeout=5)

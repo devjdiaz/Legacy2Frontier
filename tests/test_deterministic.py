@@ -204,3 +204,43 @@ def test_homonimos_vetan_cualquier_cambio_en_tareas_de_modificar():
     assert not v.allow and "más de un registro" in v.message and jev.asked[0] == {"ambiguous"}
     crear = Policy(decider=jev, task="Registra a Ana Torres", kind="crear")
     assert asyncio.run(crear.gate_effect("Aplicar", "aplicar", "", "", seen="x")).allow  # crear no pregunta ambigüedad
+
+
+def test_destinos_aprendidos_guardan_el_camino_y_se_olvidan_si_dejan_de_servir(tmp_path):
+    from agent.memory import AppMemory
+    mem = AppMemory(str(tmp_path / "m.db"))
+    mem.add_destination("app", [("ventas", 40, 90)])  # un solo clic no ahorra nada: no se guarda
+    assert mem.destinations("app") == {}
+    mem.add_destination("app", [("entendido", 640, 500), ("ventas", 40, 90), ("pedidos", 60, 140)])
+    assert mem.destinations("app") == {"pedidos": [("entendido", 640, 500), ("ventas", 40, 90), ("pedidos", 60, 140)]}
+    mem.forget_destination("app", "pedidos")
+    assert mem.destinations("app") == {}
+
+
+def test_camino_de_una_tarea_son_sus_primeros_clics_de_menu_sin_efectos_ni_datos():
+    from types import SimpleNamespace as S
+
+    from agent.brain import Agent
+    from agent.perception import Observation, TextBox
+    agent = Agent(llm=None, policy=None, actuator=None, deadline=0)
+    agent.steps = [S(n=1, tool="clic", result="clic en «Entendido»: la pantalla cambió"),
+                   S(n=2, tool="clic", result="clic en «Ventas»: la pantalla cambió"),
+                   S(n=3, tool="clic", result="clic en «Pedidos»: la pantalla cambió"),
+                   S(n=4, tool="clic", result="clic en «PD-0042»: la pantalla cambió")]
+    agent.click_at = {1: (640, 500), 2: (40, 90), 3: (60, 140), 4: (300, 200)}
+    assert agent.route() == [("entendido", 640, 500), ("ventas", 40, 90), ("pedidos", 60, 140)]
+    agent.steps[1] = S(n=2, tool="clic", result="clic en «Guardar»: la pantalla cambió")
+    assert agent.route() == [("entendido", 640, 500)]  # un botón con efecto corta el camino
+    obs = Observation(frame=None, boxes=[TextBox(1, "Pedidos", 10, 130, 90, 150), TextBox(2, "Pedidos", 500, 40, 600, 60)],
+                      digest="x")
+    assert Agent._find_label(obs, "pedidos", 60, 140).id == 1  # entre dos iguales, el más cercano a donde estaba
+
+
+def test_espera_sin_cambio_se_ajusta_a_lo_que_tarda_la_app_y_nunca_baja_de_lo_seguro():
+    from agent.vnc import Screen
+    screen = Screen(ws=None)
+    assert screen.patience(6.0) == 6.0  # sin datos: la espera de siempre
+    screen.latencies = [0.3, 0.4, 0.35, 0.5, 0.45]
+    assert screen.patience(6.0) == 2.5  # app rápida: 2,5 s en vez de 6
+    screen.latencies.append(3.0)  # una reacción lenta alarga la paciencia
+    assert screen.patience(6.0) == 4.5 and screen.patience(4.0) == 4.0
