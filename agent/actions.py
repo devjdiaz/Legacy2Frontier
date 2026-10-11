@@ -85,8 +85,15 @@ def _field_text(boxes: list[TextBox], x: int, y: int) -> str:
 class Actuator:
     def __init__(self, screen: Screen):
         self.screen = screen
+        self.idle_s = 0.0  # segundos esperando una pantalla que no cambió (clic, tecla, rueda, esperar)
+
+    def _idle(self, started: float, out: Outcome) -> Outcome:
+        if not out.changed:
+            self.idle_s += asyncio.get_running_loop().time() - started
+        return out
 
     async def click(self, x: int, y: int, double: bool = False, effectful: bool = False, timeout: float | None = None) -> Outcome:
+        started = asyncio.get_running_loop().time()
         before = self.screen.frame.copy()
         await self.screen.click(x, y, double=double)
         changed, frame = await self.screen.wait_for_change(before, timeout=timeout or (9.0 if effectful else 6.0))
@@ -95,7 +102,7 @@ class Actuator:
             frame = await self.screen.capture()
             changed = self.screen.differs(frame, before)
         summary = "la pantalla cambió" if changed else "NO se vio ningún cambio (si era una búsqueda, el resultado puede ser el mismo)"
-        return Outcome(summary, changed, frame)
+        return self._idle(started, Outcome(summary, changed, frame))
 
     async def _park_pointer(self) -> None:
         """Aparta el mouse: sobre un campo se dibuja como una «I» que el OCR lee como letra."""
@@ -234,23 +241,26 @@ class Actuator:
         return ok, seen, frame
 
     async def press(self, combo: str) -> Outcome:
+        started = asyncio.get_running_loop().time()
         before = self.screen.frame.copy()
         await self.screen.press(combo)
         changed, frame = await self.screen.wait_for_change(before, timeout=5.0)
-        return Outcome("la pantalla cambió" if changed else "NO se vio ningún cambio", changed, frame)
+        return self._idle(started, Outcome("la pantalla cambió" if changed else "NO se vio ningún cambio", changed, frame))
 
     async def scroll(self, x: int, y: int, amount: int) -> Outcome:
+        started = asyncio.get_running_loop().time()
         before = self.screen.frame.copy()
         await self.screen.scroll(x, y, amount)
         changed, frame = await self.screen.wait_for_change(before, timeout=4.0)
-        return Outcome("la pantalla cambió" if changed else "NO se vio ningún cambio", changed, frame)
+        return self._idle(started, Outcome("la pantalla cambió" if changed else "NO se vio ningún cambio", changed, frame))
 
     async def wait(self, seconds: float) -> Outcome:
+        started = asyncio.get_running_loop().time()
         before = self.screen.frame.copy()
         await asyncio.sleep(max(0.5, min(seconds, 10.0)))
         frame = await self.screen.capture()
         changed = self.screen.differs(frame, before)
-        return Outcome("la pantalla cambió" if changed else "sin cambios", changed, frame)
+        return self._idle(started, Outcome("la pantalla cambió" if changed else "sin cambios", changed, frame))
 
 
 def label_at(obs: Observation, x: int, y: int) -> str | None:

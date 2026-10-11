@@ -219,6 +219,7 @@ class Agent:
         self.app = app
         self._screen_ids: dict[str, int] = {}
         self.last_listing = ""  # último listado visto: con él la política detecta registros homónimos
+        self.phases = {"vigilar": 0.0, "pensar": 0.0, "actuar": 0.0, "ver": 0.0}  # segundos por fase del ciclo
         self.llm = llm
         self.policy = policy
         self.act = actuator
@@ -345,6 +346,7 @@ class Agent:
                                "no se exponen credenciales en el resumen. No se realizó ninguna acción en la aplicación.")
         obs = await observe(self.act.screen.frame.copy())
         while True:
+            t_turn = time.monotonic()
             remaining = self._remaining()
             force = remaining < 30 or len(self.steps) >= 45
             if remaining < 8:
@@ -372,7 +374,11 @@ class Agent:
                     self.advice_left -= 1
                     warnings.append(f"PLAN DEL SUPERVISOR (tras tu atasco): {self.advice} Síguelo salvo que la pantalla "
                                     "muestre que ya no aplica.")
+            t_think = time.monotonic()
+            self.phases["vigilar"] += t_think - t_turn
             tool, args = await self._decide(task, obs, warnings, force_finish=force)
+            t_act = time.monotonic()
+            self.phases["pensar"] += t_act - t_think
             if self.model == STRONG_MODEL and str(args.get("razon", "")).strip():
                 self.advice, self.advice_left = str(args["razon"]).strip()[:300], 3
             # en clics y desplazamientos la huella de la pantalla entra en la firma («Siguiente» en otra página no es un
@@ -398,12 +404,15 @@ class Agent:
                 self._log(tool, args, "fin")
                 return estado, format_summary(estado, str(args.get("resumen", "")), respuesta)
             outcome = await self._execute(task, tool, args, obs)
+            t_see = time.monotonic()
+            self.phases["actuar"] += t_see - t_act
             if outcome is not None:
                 self.no_change_streak = 0 if outcome.changed else self.no_change_streak + 1
                 key = self._action_key(tool, args, obs)
                 if self.memory and key:
                     self.memory.record_outcome(self.app, self._screen(obs), key, outcome.changed)
                 obs = await observe(outcome.frame, prev=obs)
+            self.phases["ver"] += time.monotonic() - t_see
 
     def _screen(self, obs: Observation) -> int:
         """Qué pantalla del mapa es esta (por sus rótulos; las celdas de tabla son datos y no cuentan)."""

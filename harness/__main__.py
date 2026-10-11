@@ -99,7 +99,8 @@ async def main() -> None:
             ok = all(r for _, r in results)
             row = {"id": case["id"], "ok": ok, "estado": estado, "resumen": resumen, "segundos": round(time.time() - t0, 1),
                    "costo": round(stats.cost, 4) if stats else None, "pasos": stats.steps if stats else None,
-                   "traza": stats.trace_dir if stats else None, "por_rol": stats.by_role if stats else {}, "checks": results}
+                   "traza": stats.trace_dir if stats else None, "por_rol": stats.by_role if stats else {},
+                   "fases": stats.by_phase if stats else {}, "checks": results}
             report.append(row)
             mark = "✅" if ok else "❌"
             print(f"{mark} {case['id']} [{case['nivel']}] {row['segundos']}s ${row['costo']} {row['pasos']} pasos → {estado}")

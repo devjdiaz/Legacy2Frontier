@@ -29,6 +29,7 @@ class RunStats:
     steps: int = 0
     by_model: dict = field(default_factory=dict)
     by_role: dict = field(default_factory=dict)
+    by_phase: dict = field(default_factory=dict)  # segundos: vigilar, pensar, actuar (incluye esperas), ver (OCR)
     trace_dir: str = ""
     app: str = ""
     kind: str = ""
@@ -102,6 +103,8 @@ async def run_with_stats(tarea: str, url: str, password: str, stats: RunStats | 
                 estado, resumen = await agent.solve(tarea)
             finally:
                 stats.steps = len(agent.steps)
+                stats.by_phase = {**{k: round(v, 1) for k, v in agent.phases.items()},
+                                  "espera_sin_cambio": round(agent.act.idle_s, 1)}
                 try:
                     screen.frame.save(os.path.join(trace_dir, "final.png"))
                 except Exception:
