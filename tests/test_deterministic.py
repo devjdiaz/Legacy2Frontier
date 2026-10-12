@@ -127,3 +127,72 @@ def test_opciones_de_lista_toleran_ocr_pero_no_confunden_valores():
     # la tarea nombra parte de la opción: todas sus palabras deben estar en la opción
     assert set(_words("Dra. Paredes")) <= set(_words("Dra. Marcela Paredes Ortiz"))
     assert not set(_words("Dra. Paredes")) <= set(_words("Dra. Paula Andrea Rojas"))
+
+
+def _fake_desktop(monkeypatch, fallos: list[BaseException]):
+    """Escritorio falso: cada intento consume el siguiente error de `fallos`; sin errores, saluda bien."""
+    import websockets
+
+    from agent import vnc
+
+    intentos = {"n": 0}
+
+    class WS:
+        async def close(self):
+            pass
+
+    async def fake_connect(*a, **k):
+        return WS()
+
+    async def fake_handshake(self, password):
+        intentos["n"] += 1
+        if fallos:
+            raise fallos.pop(0)
+
+    async def no_sleep(_):
+        pass
+
+    monkeypatch.setattr(websockets, "connect", fake_connect)
+    monkeypatch.setattr(vnc.Screen, "handshake", fake_handshake)
+    monkeypatch.setattr(vnc.asyncio, "sleep", no_sleep)
+    return vnc, intentos
+
+
+def test_vnc_reintenta_si_el_escritorio_cierra_sin_saludar(monkeypatch):
+    from websockets.exceptions import ConnectionClosedError
+
+    vnc, intentos = _fake_desktop(monkeypatch, [ConnectionClosedError(None, None), ConnectionClosedError(None, None)])
+
+    async def go():
+        async with vnc.connect("ws://x", "p") as screen:
+            return screen
+
+    assert asyncio.run(go()) is not None
+    assert intentos["n"] == 3
+
+
+def test_vnc_no_reintenta_contrasena_rechazada(monkeypatch):
+    vnc, intentos = _fake_desktop(monkeypatch, [])
+    vnc_err = vnc.RFBError("autenticación VNC rechazada")
+    monkeypatch.setattr(vnc.Screen, "handshake", lambda self, p: (_ for _ in ()).throw(vnc_err))
+
+    async def go():
+        async with vnc.connect("ws://x", "p"):
+            pass
+
+    with pytest.raises(vnc.RFBError):
+        asyncio.run(go())
+
+
+def test_vnc_se_rinde_al_agotar_el_tiempo_de_reintento(monkeypatch):
+    from websockets.exceptions import ConnectionClosedError
+
+    vnc, intentos = _fake_desktop(monkeypatch, [ConnectionClosedError(None, None) for _ in range(50)])
+
+    async def go():
+        async with vnc.connect("ws://x", "p", retry_s=0.0):
+            pass
+
+    with pytest.raises(ConnectionClosedError):
+        asyncio.run(go())
+    assert intentos["n"] == 1
