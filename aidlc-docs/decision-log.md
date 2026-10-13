@@ -154,3 +154,20 @@ Las decisiones de diseño D1–D8 están en `docs/decisiones.md`.
 - **Cómo se midió**: control y versión nueva, E1–E5 dos veces cada una con memoria limpia (la segunda con lo
   aprendido) y P01–P10 para seguridad. La versión nueva no hizo acciones indebidas, pero tampoco mejoró lo
   suficiente: se revirtió dejando el historial.
+
+## Post-entrega · Caché de prompt (se queda)
+- **Evidencia**: las herramientas y el mensaje de sistema (~4.000 tokens) son idénticos en cada llamada y se pagaban
+  completos en cada paso.
+- **Decisión**: se marcan con `cache_control` (solo el prefijo fijo; la pantalla y el historial nunca) y se releen a
+  ~0,1× del precio. Un `session_id` derivado del prefijo hace que OpenRouter mande las llamadas al mismo proveedor;
+  si no, la caché no se reutiliza. Cada rol registra tokens de entrada, leídos y escritos en caché.
+- **Resultado (banco local, memoria limpia, misma comparación que antes)**: ~57 % de la entrada sale de la caché.
+  E1–E5 frío 5/5, $0.038 → $0.020 por tarea; E1–E5 con memoria 5/5, $0.019 → $0.015; P01–P10 8/10 (las mismas
+  dos de antes, por respuesta), $0.024 → $0.011, 0 acciones indebidas. Tiempo dentro de la variación normal.
+
+## Post-entrega · Reintento de conexión al escritorio (corrida 3)
+- **Evidencia**: en la tercera corrida del set oculto, 49 tareas fallaron en ~8 s sin actuar: el escritorio aceptaba
+  el WebSocket y lo cerraba sin el saludo RFB (entre tareas, mientras se reseteaba). El agente se rendía al primer
+  intento.
+- **Decisión**: reintentar hasta 120 s con pausas cortas si el escritorio cierra sin saludar; una contraseña
+  rechazada no se reintenta. Desplegado después de esa corrida.

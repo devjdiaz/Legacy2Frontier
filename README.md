@@ -30,9 +30,10 @@ Todas las llamadas a `/tasks` requieren `Authorization: Bearer <AGENT_TOKEN>`.
 | Batería oficial E1–E5, app original (v3.9), local y en la nube | 5/5 |
 | Misma batería tras el incidente (v4.2), **sin adaptar** | 3/5 (cerró el modal y halló los controles nuevos; fallaron crear y editar) |
 | Misma batería sobre v4.2 **con el arreglo genérico** | **5/5** · $0.25 las cinco tareas |
-| Pruebas automáticas (`pytest tests`) | 40 pasan |
+| Después de la entrega: cascada de modelos + caché de prompt, E1–E5 | 5/5 en frío y 5/5 con memoria · $0.015–0.020 por tarea |
+| Pruebas automáticas (`pytest tests`) | 52 pasan |
 
-Costo típico: 3–6 centavos de dólar por tarea. El detalle de cada decisión y del incidente está en
+Costo típico: 3–6 centavos de dólar por tarea en la entrega; 1,5–2 centavos después (cascada + caché). El detalle de cada decisión y del incidente está en
 [`aidlc-docs/decision-log.md`](aidlc-docs/decision-log.md).
 
 ## Correr local
