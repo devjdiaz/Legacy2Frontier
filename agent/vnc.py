@@ -10,12 +10,16 @@ Un lector en segundo plano es el único que lee del socket; el resto solo envía
 nunca deja un mensaje a medio leer.
 """
 import asyncio
+import logging
 import struct
+import time
 from contextlib import asynccontextmanager
 
 import websockets
 from Crypto.Cipher import DES
 from PIL import Image, ImageChops, ImageDraw
+
+log = logging.getLogger(__name__)
 
 KEYSYMS = {
     "enter": 0xFF0D, "return": 0xFF0D, "tab": 0xFF09, "backspace": 0xFF08, "esc": 0xFF1B,
@@ -252,15 +256,41 @@ class Screen:
 
 
 @asynccontextmanager
-async def connect(url: str, password: str, timeout: float = 20.0):
-    """Abre la sesión VNC y la cierra siempre al salir (también si la tarea se cancela)."""
-    ws = await asyncio.wait_for(
-        websockets.connect(url, subprotocols=["binary"], max_size=None, open_timeout=timeout, close_timeout=2),
-        timeout,
-    )
-    screen = Screen(ws)
+async def connect(url: str, password: str, timeout: float = 20.0, retry_s: float = 120.0):
+    """Abre la sesión VNC y la cierra siempre al salir (también si la tarea se cancela).
+
+    Un escritorio que todavía no está listo acepta el WebSocket y lo cierra sin saludar: se reintenta
+    hasta `retry_s`. Una contraseña rechazada (RFBError) no se reintenta."""
+    deadline = time.monotonic() + retry_s
+    attempt = 0
+    while True:
+        ws = screen = None
+        try:
+            ws = await asyncio.wait_for(
+                websockets.connect(url, subprotocols=["binary"], max_size=None, open_timeout=timeout, close_timeout=2),
+                timeout,
+            )
+            screen = Screen(ws)
+            await asyncio.wait_for(screen.handshake(password), timeout)
+            break
+        except (OSError, websockets.exceptions.WebSocketException) as exc:
+            if screen:
+                await screen.close()
+            if ws:
+                await ws.close()
+            attempt += 1
+            pause = min(2.0 * attempt, 5.0)
+            if time.monotonic() + pause >= deadline:
+                raise
+            log.warning("el escritorio no respondió (%s); reintento %d", type(exc).__name__, attempt)
+            await asyncio.sleep(pause)
+        except BaseException:
+            if screen:
+                await screen.close()
+            if ws:
+                await ws.close()
+            raise
     try:
-        await asyncio.wait_for(screen.handshake(password), timeout)
         yield screen
     finally:
         await screen.close()
